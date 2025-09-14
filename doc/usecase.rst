@@ -102,6 +102,21 @@ repository::
 This workflow is suitable for finer control of data ingest.
 
 
+5. Python: In-Memory State Workflows
+------------------------------------
+
+Emma can use an memory-backed facade for data transformations that do
+not require git operations::
+
+    from hallmark import Repo
+
+    repo = Repo()
+    repo.add("data/{site}/{year:d}/{day:d}.fits")
+    repo.worktree("data_transformed/{year:d}/{day:d}/{site}.fits")
+
+This is especially useful for data (re-)organization.
+
+
 ..  |hallmark| replace:: ``hallmark``
 
 ..  _hallmark: https://github.com/l6a/hallmark
