@@ -13,9 +13,15 @@
 # limitations under the License.
 
 
-from pathlib import Path
+from pathlib   import Path
+from functools import cached_property
 
 from git import Repo
+
+import pandas as pd
+import yaml
+
+from .state import State
 
 
 class Dothm(Repo):
@@ -26,7 +32,7 @@ class Dothm(Repo):
     It is itself a git worktree.
     """
 
-    @property
+    @cached_property
     def path(self) -> Path:
         if self.working_tree_dir is None:
             raise RuntimeError("local `.hm` directory has no `git` working tree")
@@ -35,7 +41,8 @@ class Dothm(Repo):
     @classmethod
     def init(cls, *args, **kwargs) -> "Dothm":
         dothm = super().init(*args, **kwargs)
-        with open(dothm.path / "README.md", "w", encoding="utf-8") as f:
+        readme_path = dothm.path / "README.md"
+        with open(readme_path, "w", encoding="utf-8") as f:
             f.write("""# Local `.hm` Repository
 
 This is a dot-hallmark repository.
@@ -45,3 +52,29 @@ See https://l6a.github.io/hallmark/ for `hallmark` usage.
         dothm.index.add([readme_path])
         dothm.index.commit("Initial commit: local `.hm` repository")
         return dothm
+
+    def load(self) -> State:
+        return State(
+            self.load_yml("config"),
+            self.load_yml("meta"),
+            self.load_tsv("data"),
+        )
+
+    def dump(self, state: State) -> None:
+        self.dump_yml(state.config, "config")
+        self.dump_yml(state.meta,   "meta")
+        self.dump_tsv(state.data,   "data")
+
+    def load_yml(self, stem: Path | str) -> dict:
+        with open((self.path/stem).with_suffix(".yml"), "r") as f:
+            return yaml.safe_load(f)
+
+    def dump_yml(self, data: dict, stem: Path | str) -> None:
+        with open((self.path/stem).with_suffix(".yml"), "w") as f:
+            yaml.dump(data, f)
+
+    def load_tsv(self, stem: Path | str) -> pd.DataFrame:
+        return pd.read_csv((self.path/stem).with_suffix(".tsv"), sep="\t")
+
+    def dump_tsv(self, data: pd.DataFrame, stem: Path | str) -> None:
+        data.to_csv((self.path/stem).with_suffix(".tsv"), sep="\t", index=False)
