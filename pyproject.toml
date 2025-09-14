@@ -4,3 +4,4 @@ requires = ["setuptools>=80", "setuptools-scm[simple]>=8"]
 [project]
 name = "hallmark"
 dynamic = ["version"]
+license = "Apache-2.0"
