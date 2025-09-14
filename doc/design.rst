@@ -29,8 +29,8 @@ a small set of core functions:
     emit manifests of subsets for other tools to consume.
 
 
-|hallmark|_ Architecture
-------------------------
+Architecture
+------------
 
 A |hallmark|_ repository is the entry point for a version-controlled
 dataset index.
@@ -63,6 +63,29 @@ The data flow can be summarized as::
                            |access
                            v
                          Other tools
+
+
+API
+---
+
+Currently, |hallmark|_ has two built-in APIs:
+
+1.  Python API:
+    the native API that all |hallmark|_ features are implemented in.
+    ``State`` is the active object during the process lifetime.
+    ``Dothm`` and ``Worktree`` are optional depending on workflow (for
+    example, in-memory workflows may omit both).
+
+2.  CLI:
+    each ``hallmark ...`` command loads ``State`` from a discovered
+    ``Dothm`` repository, executes the requested operation, then
+    writes staged state updates back to ``Dothm`` before exit.
+    In this mode, ``State`` is short-lived and ``Dothm`` is required.
+
+``Worktree`` follows the same idea as `git worktree
+<https://git-scm.com/docs/git-worktree>`_: multiple working trees can
+be attached to one repository to support parallel data transformations
+and branch-isolated workflows.
 
 
 ..  |hallmark| replace:: ``hallmark``
