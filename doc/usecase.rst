@@ -38,6 +38,30 @@ Dataset files are represented through staged ``sha1`` column in
 associated with each file in different rows.
 
 
+2. CLI: Bare Repository with Worktree Ingest
+--------------------------------------------
+
+Bob prefers managing a bare hallmark repository for storage and
+staging data from a linked worktree.
+He initialized the bare repository and verify its mode::
+
+    hallmark init --bare sim.hm
+    cd sim.hm
+    hallmark info
+
+He then attaches a worktree, stages discovered files, and commits::
+
+    hallmark worktree add /data/outputs
+    cd /data/outputs
+    hallmark add "run{run:d}/frame{frame:d}.h5"
+    hallmark status
+    hallmark diff
+    hallmark commit -m "Simulation snapshots"
+
+The commit updates the same bare repository that owns the linked
+worktree.
+
+
 ..  |hallmark| replace:: ``hallmark``
 
 ..  _hallmark: https://github.com/l6a/hallmark
