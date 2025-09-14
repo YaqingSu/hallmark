@@ -16,20 +16,53 @@ index.
 With a well-designed indexing mechanism, it becomes natural to expose
 a small set of core functions:
 
-1.  **Add/remove:**
-    find data from any source and bring them into the index.
+1.  **add/remove:**
+    find data from any source and bring them into the index;
 
-2.  **Index:**
-    compute checksums of data objects and index their relationships.
+2.  **index:**
+    compute checksums of data objects and index their relationships;
 
-3.  **Log:**
-    append immutable records.
+3.  **version control:**
+    append immutable records; and
 
-4.  **View:**
+4.  **view:**
     emit manifests of subsets for other tools to consume.
 
-As |hallmark|_ develops, some commonly used plug-ins may be
-distributed together with the |hallmark|_ package for convenience.
+
+|hallmark|_ Architecture
+------------------------
+
+A |hallmark|_ repository is the entry point for a version-controlled
+dataset index.
+It has three architecture components with different responsibilities:
+
+1.  ``State``:
+    the canonical in-memory data container, where all index mutations
+    happen (add/remove/index);
+
+2.  ``Dothm``:
+    an on-disk version-controlled repository, persisting ``State`` and
+    providing immutable history (using ``git``); and
+
+3.  ``Worktree``:
+    an on-disk working tree/directory, where data files are discovered
+    and consumed.
+
+The data flow can be summarized as::
+
+    State ---persist-------+
+      ^                    |
+      |                    |
+      |                    v
+      +----instantiate-- Dothm (".hm" git repository)
+      |                    ^
+      |                    |link
+      |                    v
+      +-----discover---- Worktree
+                           |
+                           |access
+                           v
+                         Other tools
 
 
 ..  |hallmark| replace:: ``hallmark``
