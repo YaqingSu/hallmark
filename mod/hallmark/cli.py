@@ -47,3 +47,16 @@ def init(path):
     except GitError as e:
         raise ClickException(
             f'Failed to initialize hallmark repository at "{path}": {e}')
+
+
+@hallmark.command(short_help="Show information of the current directory.")
+def info():
+    """Show hallmark repository information of the current directory.
+
+    Display local `.hm` and worktree locations for the current
+    directory.
+    """
+    repo = Repo(".")
+
+    click.echo(f'dot-hallmark repo: "{repo.dothm.path}"')
+    click.echo(f'hallmark worktree: "{repo.worktree}"')
