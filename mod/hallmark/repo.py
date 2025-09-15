@@ -68,3 +68,15 @@ class Repo:
         self.dothm.dump(self.state)
 
         return pf
+
+    def commit(self, msg: str, allow_empty: bool = False) -> None:
+        if not isinstance(msg, str) or not msg.strip():
+            raise ValueError("commit message must be a non-empty string")
+
+        self.dothm.index.add(["config.yml", "meta.yml", "data.tsv"])
+        if allow_empty or self.dothm.index.diff("HEAD"):
+            self.dothm.index.commit(msg)
+            return True
+        else:
+            print("no changes added to commit")
+            return False
