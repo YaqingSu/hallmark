@@ -69,7 +69,43 @@ class ParaFrame(pd.DataFrame):
         return self[mask]
 
     @classmethod
-    def parse(cls, fmt, *args, debug=False, **kwargs):
+    def glob_search(cls, fmt, *args, debug=False, **kwargs):
+        pmax = len(fmt) // 3  # to specify a parameter, we need at least
+                              # three characters '{p}'; the maximum number
+                              # of possible parameters is `len(fmt) // 3`.
+
+        # Construct the glob pattern for search files
+        pattern = fmt
+        for i in range(pmax):
+            if debug:
+                print(i, pattern, args, kwargs)
+            try:
+                pattern = pattern.format(*args, **kwargs)
+                break
+            except KeyError as e:
+                k = e.args[0]
+                pattern = re.sub(r'\{'+k+r':?.*?\}', '{'+k+':s}', pattern)
+                kwargs[e.args[0]] = '*'
+
+        # Obtain list of files based on the glob pattern
+        files = sorted(glob(pattern))
+        
+        # Print the glob pattern and a summary of matches
+        if debug:
+            print(f'Pattern: "{pattern}"')
+            n = len(files)
+            if n > 1:
+                print(f'{n} matches, e.g., "{files[0]}"')
+            elif n > 0:
+                print(f'{n} match, i.e., "{files[0]}"')
+            else:
+                print(f'No match; please check format string')
+    
+        return files
+        
+
+    @classmethod
+    def parse(cls, fmt):
         """
         Construct a ``ParaFrame`` by parsing file paths that match a pattern.
 
@@ -107,40 +143,10 @@ class ParaFrame(pd.DataFrame):
         0  data/run1_p10.csv  1   10
         1  data/run2_p20.csv  2   20
         """
-        pmax = len(fmt) // 3  # to specify a parameter, we need at least
-                              # three characters '{p}'; the maximum number
-                              # of possible parameters is `len(fmt) // 3`.
-
-        # Construct the glob pattern for search files
-        pattern = fmt
-        for i in range(pmax):
-            if debug:
-                print(i, pattern, args, kwargs)
-            try:
-                pattern = pattern.format(*args, **kwargs)
-                break
-            except KeyError as e:
-                k = e.args[0]
-                pattern = re.sub(r'\{'+k+r':?.*?\}', '{'+k+':s}', pattern)
-                kwargs[e.args[0]] = '*'
-
-        # Obtain list of files based on the glob pattern
-        files = sorted(glob(pattern))
-
-        # Print the glob pattern and a summary of matches
-        if debug:
-            print(f'Pattern: "{pattern}"')
-            n = len(files)
-            if n > 1:
-                print(f'{n} matches, e.g., "{files[0]}"')
-            elif n > 0:
-                print(f'{n} match, i.e., "{files[0]}"')
-            else:
-                print(f'No match; please check format string')
-
+       
         # Parse list of file names back to parameters
         parser = parse.compile(fmt)
-
+        files = ParaFrame.glob_search(fmt)
         l = []
         for f in files:
             r = parser.parse(f)
