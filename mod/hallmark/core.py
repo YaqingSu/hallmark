@@ -147,12 +147,13 @@ class ParaFrame(pd.DataFrame):
 
         # Parse list of file names back to parameters
         parser = parse.compile(fmt)
+
         files = ParaFrame.glob_search(fmt, debug=debug)
-        l = []
+        frame = []
         for f in files:
             r = parser.parse(f)
             if r is None:
                 print(f'Failed to parse "{f}"')
             else:
-                l.append({"path": f, **r.named})
-        return cls(l)
+                frame.append({'path':f, **r.named})
+        return cls(frame)
