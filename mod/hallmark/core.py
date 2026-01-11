@@ -71,7 +71,7 @@ class ParaFrame(pd.DataFrame):
         return self[mask]
 
     @classmethod
-    def glob_search(cls, fmt, *args, debug=False, **kwargs):
+    def glob_search(cls, fmt, *args, debug=False, return_pattern=False,**kwargs):
         pmax = len(fmt) // 3  # to specify a parameter, we need at least
         # three characters '{p}'; the maximum number
         # of possible parameters is `len(fmt) // 3`.
@@ -103,10 +103,10 @@ class ParaFrame(pd.DataFrame):
             else:
                 print(f"No match; please check format string")
 
-        return files
+        return (files, pattern) if return_pattern else files
 
     @classmethod
-    def parse(cls, fmt, debug=False):
+    def parse(cls, fmt, *args, debug=False, **kwargs): 
         """
         Construct a ``ParaFrame`` by parsing file paths that match a pattern.
 
@@ -147,8 +147,8 @@ class ParaFrame(pd.DataFrame):
 
         # Parse list of file names back to parameters
         parser = parse.compile(fmt)
+        files = cls.glob_search(fmt, *args, debug=debug, **kwargs)
 
-        files = ParaFrame.glob_search(fmt, debug=debug)
         frame = []
         for f in files:
             r = parser.parse(f)
