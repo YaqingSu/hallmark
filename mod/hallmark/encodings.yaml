@@ -1,0 +1,14 @@
+encodings:
+  spin_UIUC:
+    type: float
+    regex: "m?([0-9]+(\\.[0-9]+)?|\\.[0-9]+)"
+    transform:
+      m: "-"
+    formatting:
+      format: "+.2f"
+
+  spin_BHAC:
+    type: float
+    regex: "[+-]?([0-9]+(\\.[0-9]+)?|\\.[0-9]+)"
+    fomratting:
+      format: "+.2f"

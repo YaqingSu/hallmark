@@ -88,6 +88,7 @@ class ParaFrame(pd.DataFrame):
             except KeyError as e:
                 k = e.args[0]
                 pattern = re.sub(r"\{" + k + r":?.*?\}", "{" + k + ":s}", pattern)
+                new_fmt = re.sub(r"\{" + k + r":?.*?\}", "{" + k + ":d}", new_fmt)
                 kwargs[e.args[0]] = "*"
 
         # Obtain list of files based on the glob pattern
@@ -104,7 +105,7 @@ class ParaFrame(pd.DataFrame):
             else:
                 print(f"No match; please check format string")
 
-        return (files, pattern) if return_pattern else files
+        return (files, pattern) if return_pattern else (new_fmt, files)
 
     @classmethod
     def parse(cls, fmt, *args, debug=False, **kwargs): 
@@ -147,8 +148,8 @@ class ParaFrame(pd.DataFrame):
         """
 
         # Parse list of file names back to parameters
-        parser = parse.compile(fmt)
-        files = cls.glob_search(fmt, *args, debug=debug, **kwargs)
+        new_fmt, files = cls.glob_search(fmt, *args, debug=debug, **kwargs)
+        parser = parse.compile(new_fmt)
 
         frame = []
         for f in files:
@@ -158,20 +159,3 @@ class ParaFrame(pd.DataFrame):
             else:
                 frame.append({'path':f, **r.named})
         return cls(frame)
-
-class newFormatter(string.Formatter):
-
-    def format_field(self, value, type):
-        # define default formatting for spin values according to EHT standards
-        
-        # need to add some kind of .get("Formatter") that acesses the yml file
-        if type == "aspin":
-            # here we need to take in the information in the "formatter" section of the .yml file
-            # so that each special case of spin types are accounted for. Will probably be a return
-            # statement in this that uses whatever is in the .yml spin type dictionary
-
-            # otherwise we return a default for all standard spins?
-            return f'{value:+g}'
-        
-        # otherwise, all other data types keep their default behavior
-        return super().format_field(value, type)
