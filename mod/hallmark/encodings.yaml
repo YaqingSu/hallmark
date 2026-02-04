@@ -10,5 +10,5 @@ encodings:
   spin_BHAC:
     type: float
     regex: "[+-]?([0-9]+(\\.[0-9]+)?|\\.[0-9]+)"
-    fomratting:
+    formatting:
       format: "+.2f"

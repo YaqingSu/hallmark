@@ -1,6 +1,7 @@
 import pandas as pd
 import pytest
 from hallmark import ParaFrame
+from hallmark.helper_functions import *
 
 @pytest.fixture
 def create_ParaFrame(create_temp_data):
@@ -77,3 +78,10 @@ def test_filtering_by_numeric_spin(create_ParaFrame_spin):
     pf_filtered = pf(a=0.5)
     assert len(pf_filtered) == 3
     assert set(pf_filtered["a"].unique()) == {0.5}
+
+def test_loading_yaml_file_for_special_formatting():
+    parameters = load_encodings_yaml()
+    assert "spin_UIUC" in parameters
+    assert "spin_BHAC" in parameters
+    assert parameters['spin_UIUC']['regex'] == "m?([0-9]+(\.[0-9]+)?|\.[0-9]+)"
+    assert parameters['spin_UIUC']['transform']['m'] == '-'
