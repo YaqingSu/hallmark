@@ -26,12 +26,21 @@ from . import Repo  # from "__init__.py"
 
 @click.group()
 @click.version_option()
-def hallmark():
+@click.pass_context
+def hallmark(ctx):
     """Reproducibility is the hallmark of the scientific method.
 
     Hallmark is a lightweight package designed to version control and
     manage data products in a complex workflow.
     """
+    if ctx.invoked_subcommand in [None, "init"]:
+        return  # do nothing
+
+    try:
+        ctx.obj = Repo(".")
+    except GitError as e:
+        raise ClickException(
+            f"Failed to open hallmark repository: {e}")
 
 
 @hallmark.command(short_help="Initialize a hallmark repository.")
@@ -50,28 +59,30 @@ def init(path):
 
 
 @hallmark.command(short_help="Show information of the current directory.")
-def info():
+@click.pass_obj
+def info(repo):
     """Show hallmark repository information of the current directory.
 
     Display local `.hm` and worktree locations for the current
     directory.
     """
-    repo = Repo(".")
-
     click.echo(f'dot-hallmark repo: "{repo.dothm.path}"')
     click.echo(f'hallmark worktree: "{repo.worktree}"')
 
 
-@hallmark.command(short_help="Add files to hallmark index.")
+@hallmark.command(short_help="Add files to hallmark index using a Python f-string.")
 @click.argument("fstring")
-def add(fstring):
+@click.pass_obj
+def add(repo, fstring):
     """Add files discovered via a Python format string to the hallmark index.
 
     This is analogous to `git add FILE`, which adds file contents to
     the "index" (also known as the "staging area").
+    Instead of specifying file names directly, this function uses a
+    Python format string (i.e., an f-string) to discover and add
+    matching files to the hallmark index.
     """
-    repo = Repo(".")
-    pf   = repo.add(fstring)
+    pf = repo.add(fstring)
 
     click.echo("Changes to be committed")
     click.echo(pf.path.to_string(index=False, header=False))
@@ -79,10 +90,10 @@ def add(fstring):
 
 @hallmark.command(short_help="Commit changes to the repository.")
 @click.option("-m", "message", required=True)
-def commit(message):
+@click.pass_obj
+def commit(repo, message):
     """Commit changes in the index to the hallmark repository.
 
     This is analogous to `git commit -m MESSAGE`.
     """
-    repo = Repo(".")
-    repo.commit(message)
+    succeed = repo.commit(message)
