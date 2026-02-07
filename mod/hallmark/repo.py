@@ -58,7 +58,8 @@ class Repo:
 
     def add(self, fstr: str) -> ParaFrame:
         if self.worktree is None:
-            raise RuntimeError("cannot add files in a bare repository without a worktree")
+            raise RuntimeError(
+                "cannot add files in a bare repository without a worktree")
 
         from contextlib import chdir
         with chdir(self.worktree):
@@ -69,7 +70,7 @@ class Repo:
 
         return pf
 
-    def commit(self, msg: str, allow_empty: bool = False) -> None:
+    def commit(self, msg: str, allow_empty: bool = False) -> bool:
         if not isinstance(msg, str) or not msg.strip():
             raise ValueError("commit message must be a non-empty string")
 
@@ -77,5 +78,4 @@ class Repo:
             self.dothm.index.commit(msg)
             return True
         else:
-            print("no changes added to commit")
             return False

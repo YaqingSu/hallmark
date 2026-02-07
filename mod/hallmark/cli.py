@@ -13,7 +13,7 @@
 # limitations under the License.
 
 
-"""CLI entrypoint and command wiring."""
+"""Hallmark CLI entrypoint and command wiring."""
 
 
 import click
@@ -21,7 +21,7 @@ import click
 from click   import ClickException
 from git.exc import GitError
 
-from . import Repo
+from . import Repo  # from "__init__.py"
 
 
 @click.group()

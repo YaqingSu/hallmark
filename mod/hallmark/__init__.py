@@ -13,6 +13,9 @@
 # limitations under the License.
 
 
+"""Hallmark python public API"""
+
+
 from .repo import Repo
 
 

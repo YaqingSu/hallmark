@@ -17,7 +17,6 @@ from pathlib   import Path
 from functools import cached_property
 
 from git import Repo
-
 import pandas as pd
 import yaml
 
