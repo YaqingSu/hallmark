@@ -44,3 +44,6 @@ where = ["mod"]
 [tool.ruff.lint]
 select = ["E", "F"]
 exclude = ["doc", "demo"]
+
+[tool.pytest.ini_options]
+testpaths = ["test"]
