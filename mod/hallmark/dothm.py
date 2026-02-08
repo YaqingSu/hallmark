@@ -21,6 +21,7 @@ import pandas as pd
 import yaml
 
 from .state import State
+from .error import DothmError
 
 
 class Dothm(Repo):
@@ -33,13 +34,13 @@ class Dothm(Repo):
 
     @cached_property
     def path(self) -> Path:
-        if self.working_tree_dir is None:
-            raise RuntimeError("local `.hm` directory has no `git` working tree")
         return Path(self.working_tree_dir)
 
     @classmethod
     def init(cls, *args, **kwargs) -> "Dothm":
         dothm = super().init(*args, **kwargs)
+        if dothm.bare or dothm.working_tree_dir is None:
+            raise DothmError('The ".hm" directory must be a valid git worktree.')
         readme_path = dothm.path / "README.md"
         with open(readme_path, "w", encoding="utf-8") as f:
             f.write("""# Local `.hm` Repository
