@@ -78,7 +78,6 @@ class ParaFrame(pd.DataFrame):
         # Load and read Yaml file
         yaml_encodings = load_encodings_yaml(index)
         fmt = yaml_encodings["fmt"]
-        print(fmt)
 
         pmax = len(fmt) // 3  # to specify a parameter, we need at least
         # three characters '{p}'; the maximum number
@@ -86,7 +85,7 @@ class ParaFrame(pd.DataFrame):
 
         # Construct the glob pattern for search files
         pattern = fmt
-        fmt_d = fmt
+        fmt_g = fmt
 
 
         for i in range(pmax):
@@ -98,8 +97,7 @@ class ParaFrame(pd.DataFrame):
             except KeyError as e:
                 k = e.args[0]
                 pattern = re.sub(r"\{" + k + r":?.*?\}", "{" + k + ":s}", pattern)
-                fmt_s = pattern
-                fmt_d = re.sub(r"\{" + k + r":?.*?\}", "{" + k + ":d}", fmt_d)
+                fmt_g = re.sub(r"\{" + k + r":?.*?\}", "{" + k + ":g}", fmt_g)
                 kwargs[e.args[0]] = "*"
 
         # Obtain list of files based on the glob pattern
@@ -116,7 +114,7 @@ class ParaFrame(pd.DataFrame):
             else:
                 print(f"No match; please check format string")
 
-        return (globbed_files, pattern) if return_pattern else (yaml_encodings, fmt_d, globbed_files)
+        return (globbed_files, pattern) if return_pattern else (yaml_encodings, fmt_g, globbed_files)
 
     @classmethod
     def parse(cls, index = 0, *args, debug=False, **kwargs,): 
@@ -160,8 +158,8 @@ class ParaFrame(pd.DataFrame):
     
         # Parse list of file names back to parameters
 
-        yaml_encodings, fmt_d, globbed_files = cls.glob_search(index, *args, debug=debug, **kwargs)
-        parser = parse.compile(fmt_d)
+        yaml_encodings, fmt_g, globbed_files = cls.glob_search(index, *args, debug=debug, **kwargs)
+        parser = parse.compile(fmt_g)
 
         frame = []
         for f in globbed_files:
