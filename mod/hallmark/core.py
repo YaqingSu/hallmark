@@ -73,63 +73,53 @@ class ParaFrame(pd.DataFrame):
         return self[mask]
 
     @classmethod
-    def glob_search(cls, fmt, *args, debug=False, return_pattern=False,**kwargs):
+    def glob_search(cls, index = 0, *args, debug=False, return_pattern=False,**kwargs):
+
+        # Load and read Yaml file
+        yaml_encodings = load_encodings_yaml(index)
+        fmt = yaml_encodings["fmt"]
+        print(fmt)
+
         pmax = len(fmt) // 3  # to specify a parameter, we need at least
         # three characters '{p}'; the maximum number
         # of possible parameters is `len(fmt) // 3`.
-
-        # Load and read Yaml file
-        parameters = load_encodings_yaml()
-        print(parameters)
 
         # Construct the glob pattern for search files
         pattern = fmt
         fmt_d = fmt
 
-        ### Call Preprocessing Function ###
-        custom_key_encoding_map = encoding_map(fmt)
-        encoding = custom_key_encoding_map['aspin']
 
-        if encoding in parameters:
-            # if "__HM_PREPROCESSED__" not in fmt:
-            #     raise ValueError(
-            #         "Format string was not preprocessed. "
-            #         "Call preprocess_fmt(fmt) before glob_search()."
-            #         )
-            
-            for i in range(pmax):
-                if debug:
-                    print(i, pattern, args, kwargs)
-                try:
-                    pattern = pattern.format(*args, **kwargs)
-                    break
-                except KeyError as e:
-                    k = e.args[0]
-                    pattern = re.sub(r"\{" + k + r":?.*?\}", "{" + k + ":s}", pattern)
-                    fmt_s = pattern
-                    fmt_d = re.sub(r"\{" + k + r":?.*?\}", "{" + k + ":d}", fmt_d)
-                    kwargs[e.args[0]] = "*"
+        for i in range(pmax):
+            if debug:
+                print(i, pattern, args, kwargs)
+            try:
+                pattern = pattern.format(*args, **kwargs)
+                break
+            except KeyError as e:
+                k = e.args[0]
+                pattern = re.sub(r"\{" + k + r":?.*?\}", "{" + k + ":s}", pattern)
+                fmt_s = pattern
+                fmt_d = re.sub(r"\{" + k + r":?.*?\}", "{" + k + ":d}", fmt_d)
+                kwargs[e.args[0]] = "*"
 
-            # Obtain list of files based on the glob pattern
-            globbed_files = sorted(glob(pattern))
+        # Obtain list of files based on the glob pattern
+        globbed_files = sorted(glob(pattern))
 
-            # Print the glob pattern and a summary of matches
-            if debug == True:
-                print(f'Pattern: "{pattern}"')
-                n = len(globbed_files)
-                if n > 1:
-                    print(f'{n} matches, e.g., "{globbed_files[0]}"')
-                elif n > 0:
-                    print(f'{n} match, i.e., "{globbed_files[0]}"')
-                else:
-                    print(f"No match; please check format string")
+        # Print the glob pattern and a summary of matches
+        if debug == True:
+            print(f'Pattern: "{pattern}"')
+            n = len(globbed_files)
+            if n > 1:
+                print(f'{n} matches, e.g., "{globbed_files[0]}"')
+            elif n > 0:
+                print(f'{n} match, i.e., "{globbed_files[0]}"')
+            else:
+                print(f"No match; please check format string")
 
-            return (globbed_files, pattern) if return_pattern else (fmt_d, fmt_s, custom_key_encoding_map, globbed_files)
-        else:
-            raise KeyError("Custom Key not defined in config file!")
+        return (globbed_files, pattern) if return_pattern else (yaml_encodings, fmt_d, globbed_files)
 
     @classmethod
-    def parse(cls, fmt, *args, debug=False, **kwargs): 
+    def parse(cls, index = 0, *args, debug=False, **kwargs,): 
         """
         Construct a ``ParaFrame`` by parsing file paths that match a pattern.
 
@@ -167,20 +157,16 @@ class ParaFrame(pd.DataFrame):
         0  data/run1_p10.csv  1   10
         1  data/run2_p20.csv  2   20
         """
-
-        ### Call Preprocessing Function ###
-        
-        
+    
         # Parse list of file names back to parameters
-        fmt_d, fmt_s, custom_key_encoding_map, globbed_files = cls.glob_search(fmt, *args, debug=debug, **kwargs)
 
-        ### Normalizing custom Characters function ###
-
-        parser = parse.compile(fmt_s)
+        yaml_encodings, fmt_d, globbed_files = cls.glob_search(index, *args, debug=debug, **kwargs)
+        parser = parse.compile(fmt_d)
 
         frame = []
         for f in globbed_files:
-            r = parser.parse(f)
+            f_new = regex_sub(f, yaml_encodings)
+            r = parser.parse(f_new)
             if r is None:
                 print(f'Failed to parse "{f}"')
             else:

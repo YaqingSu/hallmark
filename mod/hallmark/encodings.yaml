@@ -1,16 +1,11 @@
 data:
-  - fmt : ""
+  - fmt : "data/{mag:d}_mag{aspin}_w{win:d}"
     encoding:
-      regex: "m([0-9]+(\\.[0-9]+)?|\\.[0-9]+)"
-      transform:
-        m: "-"
-      formatting:
-        format: "+.2f"
+      aspin: "m([0-9]+(\\.[0-9]+)?|\\.[0-9]+)"
+      
 
-  # - fmt2 : ""
-  #   encoding2:
-  #     regex2: "m([0-9]+(\\.[0-9]+)?|\\.[0-9]+)"
-  #     transform:
-  #       m: "-"
-  #     formatting:
-  #       format: "+.2f"
+  - fmt : "data/a_{a:d}/b_{b:d}.txt"
+    encoding:
+      aspin: ""
+
+      
