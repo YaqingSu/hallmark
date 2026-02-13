@@ -6,7 +6,7 @@ import re
 # and moving two directories above using parents[2] and appending "encodings.yaml" to path.
 ENCODINGS_YAML = Path(__file__).parents[2] / "encodings.yaml"
 
-def load_encodings_yaml(index = 0, path=ENCODINGS_YAML):
+def load_encodings_yaml(fmt, path=ENCODINGS_YAML):
     """
     Load encoding rules from a YAML configuration file.
 
@@ -22,9 +22,16 @@ def load_encodings_yaml(index = 0, path=ENCODINGS_YAML):
             A single encoding configuration containing rules such as the regex commands.
     """
     f = path.open("r", encoding="utf-8") # Opens the yaml file path
+   
     yaml_file = yaml.safe_load(f) # Safely loads in the yaml data
-    encodings = yaml_file["data"] # Extracts the encodings from the yaml file.
-    return encodings[index]
+    yaml_file_data = yaml_file["data"] # Extracts the encodings from the yaml file.
+    print("Loaded!")
+    for i in range(len(yaml_file_data)):
+        if yaml_file_data[i]['fmt'] == fmt:
+            aspin_encoding = yaml_file_data[i]['encoding']['aspin']
+    
+    
+    return aspin_encoding
 
 def regex_sub(f, yaml_encodings):
     """
@@ -41,7 +48,8 @@ def regex_sub(f, yaml_encodings):
             The transformed string after applying regex substitutions.
     """
     fmt = f # Assigns the format specified in the yaml file
-    regex = yaml_encodings["encoding"]["aspin"] # Extracts the regex from the yaml file
+    
+    regex = yaml_encodings # Extracts the regex from the yaml file
     if re.search(regex, fmt) and len(regex)>0: # Proceeds if regex is not empty and finds what the regex intends to find
         matches = re.finditer(regex, fmt)
         for match in matches: # Iterating through the matches
@@ -51,3 +59,4 @@ def regex_sub(f, yaml_encodings):
 
     return fmt
 
+print(load_encodings_yaml("data/{mag:d}_mag{aspin}_w{win:d}.h5"))

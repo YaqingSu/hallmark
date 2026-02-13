@@ -20,7 +20,6 @@ import re
 import parse
 import pandas as pd
 import numpy as np
-import string           # added for Formatter subclassing
 
 from .helper_functions import *
 
@@ -73,16 +72,9 @@ class ParaFrame(pd.DataFrame):
         return self[mask]
 
     @classmethod
-    def glob_search(cls, index = 0, _test_fmt = None, *args, debug=False, return_pattern=False,**kwargs):
+    def glob_search(cls, fmt, *args, debug=False, return_pattern=False,**kwargs):
 
         # Load and read Yaml file
-        if _test_fmt != None:
-            fmt = _test_fmt
-
-            yaml_encodings = load_encodings_yaml(index,path=Path("/tmp/encoding_tmp.yaml"))
-        else:
-            yaml_encodings = load_encodings_yaml(index)
-            fmt = yaml_encodings["fmt"]
 
         pmax = len(fmt) // 3  # to specify a parameter, we need at least
         # three characters '{p}'; the maximum number
@@ -119,10 +111,10 @@ class ParaFrame(pd.DataFrame):
             else:
                 print(f"No match; please check format string")
 
-        return (globbed_files, pattern) if return_pattern else (yaml_encodings, fmt_g, globbed_files)
+        return (globbed_files, pattern) if return_pattern else ( globbed_files, fmt_g)
 
     @classmethod
-    def parse(cls, index = 0, _test_fmt = None, *args, debug=False, **kwargs,): 
+    def parse(cls, fmt, _tmp_test = None, encoding = False, *args, debug=False, **kwargs,): 
         """
         Construct a ``ParaFrame`` by parsing file paths that match a pattern.
 
@@ -163,15 +155,29 @@ class ParaFrame(pd.DataFrame):
     
         # Parse list of file names back to parameters
 
-        yaml_encodings, fmt_g, globbed_files = cls.glob_search(index,_test_fmt, *args, debug=debug, **kwargs)
+        globbed_files, fmt_g = cls.glob_search(fmt, *args, debug=debug, **kwargs)
         parser = parse.compile(fmt_g)
 
         frame = []
+        if encoding == True:
+            if _tmp_test != None:
+                
+        
+                encoding_data = load_encodings_yaml(_tmp_test)
+            else:
+                 encoding_data = load_encodings_yaml(fmt)
+
+            
+                
         for f in globbed_files:
-            f_new = regex_sub(f, yaml_encodings)
+            if encoding == True:
+                f_new = regex_sub(f, encoding_data)
+            else:
+                f_new = f
             r = parser.parse(f_new)
             if r is None:
                 print(f'Failed to parse "{f}"')
             else:
                 frame.append({'path':f, **r.named})
+        print(frame)
         return cls(frame)

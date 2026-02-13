@@ -33,7 +33,7 @@ def create_temp_data_spin(tmp_path):
 @pytest.fixture(scope = "function")
 def create_temp_data_spin_with_m(tmp_path):
     data_dir = tmp_path / "data"
-    data_dir.mkdir(parents=True, exist_ok=True)
+    data_dir.mkdir(parents=True)
     spins = ["m0.5", "0", "0.5"]
     
     for mag in range(0, 2):   
