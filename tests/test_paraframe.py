@@ -6,12 +6,12 @@ from hallmark.helper_functions import *
 @pytest.fixture
 def create_ParaFrame(create_temp_data):
     fmt = str(create_temp_data / "a_{a:d}/b_{b:d}.txt")
-    return ParaFrame.parse(fmt)
+    return ParaFrame.parse(fmt, encoding=True)
 
 @pytest.fixture
 def create_ParaFrame_spin(create_temp_data_spin):
     fmt = str(create_temp_data_spin / "a{aspin}/b_{b:d}.txt")
-    return ParaFrame.parse(fmt)
+    return ParaFrame.parse(fmt, encoding=True)
 
 @pytest.fixture
 def create_ParaFrame_spin_with_m(create_temp_data_spin_with_m):
@@ -48,18 +48,18 @@ def test_pandas_method_on_pf(create_ParaFrame):
 
 def test_glob_string_format(create_temp_data):
     fmt = str(create_temp_data / "a_{a:d}/b_{b:d}.txt")
-    pattern = ParaFrame.glob_search(fmt, a=0, return_pattern=True)[1]
+    pattern = ParaFrame.glob_search(fmt, a=0, return_pattern=True, encoding=True)[1]
     norm = pattern.replace("\\", "/") # standardize output for Mac and PC
     assert  norm.endswith("/a_0/b_*.txt")
 
 def test_glob_method_returns_files(create_temp_data):
     fmt = str(create_temp_data / "a_{a:d}/b_{b:d}.txt")
-    files = ParaFrame.glob_search(fmt, a=0, return_pattern=True)[0]
+    files = ParaFrame.glob_search(fmt, a=0, return_pattern=True, encoding=True)[0]
     assert len(files) == 10
 
 def test_parse_method_with_added_filter_arg(create_temp_data):
     fmt = str(create_temp_data / "a_{a:d}/b_{b:d}.txt")
-    pf = ParaFrame.parse(fmt, a=0)
+    pf = ParaFrame.parse(fmt, a=0, encoding=True)
     assert pf.shape == (10, 3)
     assert pf["a"].unique() == 0
 

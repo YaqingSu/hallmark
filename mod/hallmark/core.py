@@ -72,7 +72,7 @@ class ParaFrame(pd.DataFrame):
         return self[mask]
 
     @classmethod
-    def glob_search(cls, fmt, *args, debug=False, return_pattern=False, encoding=True, **kwargs):
+    def glob_search(cls, fmt, *args, debug=False, return_pattern=False, encoding=False, **kwargs):
         pmax = len(fmt) // 3  # to specify a parameter, we need at least
         # three characters '{p}'; the maximum number
         # of possible parameters is `len(fmt) // 3`.
@@ -89,15 +89,26 @@ class ParaFrame(pd.DataFrame):
         print(f'fmt_enc = {fmt_enc}')
         yaml_encodings = find_spec_by_fmt(fmt_enc)
 
+        
+
         if yaml_encodings is None:
             raise ValueError(f"Error: The format '{fmt_enc}' is missing from encodings.yaml.")
 
         needs_encoding = False
-        enc_dict = yaml_encodings.get("encoding", {})
+        #enc_dict = yaml_encodings.get("encoding", {})
         
-        for key in enc_dict:
-            if enc_dict[key] != "":
-                needs_encoding = True
+        for i in range(len(encodings)):
+            if 'encoding' not in encodings[i].keys():
+                needs_encoding = False
+            else:
+                enc_dict = yaml_encodings.get("encoding", {})
+                for key in enc_dict:
+                    if enc_dict[key] != "":
+                        needs_encoding = True
+        
+        # for key in enc_dict:
+        #     if enc_dict[key] != "":
+        #         needs_encoding = True
                 
         if needs_encoding == True and encoding == False:
             raise ValueError(f"Error: '{fmt_enc}' has a regex spec, so you must use encoding=True")
@@ -142,7 +153,7 @@ class ParaFrame(pd.DataFrame):
             return (yaml_encodings, fmt_g, globbed_files)
 
     @classmethod
-    def parse(cls, fmt, *args, debug=False, encoding=True, **kwargs):
+    def parse(cls, fmt, *args, debug=False, encoding=False, **kwargs):
         """
         Construct a ``ParaFrame`` by parsing file paths that match a pattern.
 
