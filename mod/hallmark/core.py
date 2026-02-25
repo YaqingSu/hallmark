@@ -73,6 +73,7 @@ class ParaFrame(pd.DataFrame):
 
     @classmethod
     def glob_search(cls, fmt, *args, debug=False, return_pattern=False, encoding=False, **kwargs):
+        
         pmax = len(fmt) // 3  # to specify a parameter, we need at least
         # three characters '{p}'; the maximum number
         # of possible parameters is `len(fmt) // 3`.
@@ -90,7 +91,7 @@ class ParaFrame(pd.DataFrame):
         
 
         if yaml_encodings is None:
-            raise ValueError(f"Error: The format '{fmt_enc}' is missing from encodings.yaml.")
+            raise ValueError(f"Error: The format '{fmt_enc}' is missing from .hallmark.yaml.")
 
         needs_encoding = False
         #enc_dict = yaml_encodings.get("encoding", {})
@@ -115,9 +116,10 @@ class ParaFrame(pd.DataFrame):
             raise ValueError(f"Error: '{fmt_enc}' does not have a regex spec, so you must use encoding=False")
 
         # Construct the glob pattern for search files
-        pattern = fmt
-        fmt_g = fmt_enc
-
+        base = str(get_rel_yaml_path().parent)
+        pattern = base + fmt
+        fmt_g = fmt_enc.lstrip("/")
+        
         for i in range(pmax):
             if debug:
                 print(i, pattern, args, kwargs)
@@ -193,16 +195,17 @@ class ParaFrame(pd.DataFrame):
         parser = parse.compile(fmt_g)
         
         frame = []
+
         for f in globbed_files:
+            f_short = str(Path(f).relative_to(Path(get_rel_yaml_path().parent)))
             if encoding:
-                f_short = str(Path(f).relative_to(Path(yaml_encodings['path_to_fmt'])))
                 f_new = regex_sub(f_short, yaml_encodings)
             else:
-                f_new = f
+                f_new = f_short
 
             r = parser.parse(f_new)
             if r is None:
                 print(f'Failed to parse "{f}"')
             else:
-                frame.append({'path': f, **r.named})
+                frame.append({'path': f_short, **r.named})
         return cls(frame)

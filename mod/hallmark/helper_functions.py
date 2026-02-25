@@ -2,17 +2,34 @@ from pathlib import Path
 import yaml
 import re
 
-ENCODINGS_YAML = Path(__file__).parents[2] / "encodings.yaml"
+_user_yaml_path = None
 
-def load_encodings_yaml(path=ENCODINGS_YAML):
+def set_rel_yaml_path(path):
+    global _user_yaml_path
+    _user_yaml_path = Path(path).resolve()
 
+def get_rel_yaml_path():
+    if _user_yaml_path is not None:
+        return _user_yaml_path
+    return Path(__file__).parent / ".hallmark.yaml"
+
+def load_encodings_yaml():
+    path = get_rel_yaml_path()
+    yaml_path = Path(path).resolve()
     f = path.open("r", encoding="utf-8")
     yaml_file = yaml.safe_load(f)
     encodings = yaml_file["data"]
+    # Resolve path_to_fmt relative to the yaml file's directory
+    for entry in encodings:
+        if "path_to_fmt" in entry:
+            entry["path_to_fmt"] = str(
+                (yaml_path.parent / entry["path_to_fmt"]).resolve()
+            )
+
     return encodings
 
-def find_spec_by_fmt(fmt, path=ENCODINGS_YAML):
-
+def find_spec_by_fmt(fmt):
+    path = get_rel_yaml_path()
     f = path.open("r", encoding="utf-8")
     yaml_file = yaml.safe_load(f)
     encodings = yaml_file["data"]
