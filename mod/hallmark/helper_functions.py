@@ -29,10 +29,11 @@ def get_rel_yaml_path(repo_path=None):
     """
 
     if repo_path is not None:
-        return Path(repo_path) / ".hallmark.yaml" # returns the path specified by repo_path
+        return Path(repo_path) / ".hallmark.yaml" # returns the path specified
     if _user_yaml_path is not None:
         return _user_yaml_path
-    return Path.cwd() / ".hallmark.yaml" # returns the current working directory
+    return Path.cwd() / ".hallmark.yaml" 
+    # returns the current working directory
 
 def load_encodings_yaml(repo_path=None):
     """
@@ -90,8 +91,8 @@ def regex_sub(f, yaml_encodings):
         f: format string
         yaml_encodings: The encodings in the .yaml file.
 
-        Returns: The format string through various conditionals including evaulating
-        the regex.
+        Returns: The format string through various conditionals including 
+        evaulating the regex.
     """
 
     fmt = f
