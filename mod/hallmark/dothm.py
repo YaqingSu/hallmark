@@ -28,7 +28,7 @@ class Dothm(Repo):
     """Local ``.hm`` storage backend.
 
     The backend version controls the hallmark ``State`` database files
-    (``config.yml``, ``meta.yml``, ``data.tsv``) on-disk.
+    (``config.yml``, ``meta.yml``, ``data.tsv``, ``hallmark.yml``) on-disk.
     It is itself a git worktree.
     """
 
@@ -75,14 +75,16 @@ See https://l6a.github.io/hallmark/ for `hallmark` usage.
         return State(
             self.load_yml("config"),
             self.load_yml("meta"),
+            self.load_yml("hallmark"),
             self.load_tsv("data"),
         )
 
     def dump(self, state: State) -> None:
         self.dump_yml(state.config, "config")
         self.dump_yml(state.meta,   "meta")
+        self.dump_yml(state.encodings, "hallmark")
         self.dump_tsv(state.data,   "data")
-        self.index.add(["config.yml", "meta.yml", "data.tsv"])
+        self.index.add(["config.yml", "meta.yml", "data.tsv", "hallmark.yml"])
 
     def load_yml(self, stem: Path | str) -> dict:
         with open((self.path/stem).with_suffix(".yml"), "r") as f:

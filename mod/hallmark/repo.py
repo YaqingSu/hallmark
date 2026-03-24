@@ -65,14 +65,19 @@ class Repo:
                 digest.update(block)
         return digest.hexdigest()
 
-    def add(self, fstr: str) -> ParaFrame:
+    def add(self, fstr: str, encoding: bool = False) -> ParaFrame:
         if self.worktree is None:
             raise RuntimeError(
                 "cannot add files in a bare repository without a worktree")
 
         from contextlib import chdir
         with chdir(self.worktree):
-            pf = ParaFrame(fstr)
+            pf = ParaFrame.parse(
+                fstr,
+                base_path = self.worktree,
+                encodings = self.state.encodings if encoding else None,
+                encoding = encoding,
+                )
 
         if not pf.empty:
             pf["sha1"] = [

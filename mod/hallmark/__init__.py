@@ -18,12 +18,6 @@
 
 
 from .repo import Repo
-
+from .paraframe import ParaFrame as ParaFrame
 
 __all__ = ["Repo"]
-
-
-
-from .paraframe import ParaFrame as ParaFrame
-from .helper_functions import set_rel_yaml_path as set_rel_yaml_path
-
