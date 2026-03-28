@@ -19,13 +19,13 @@ def find_spec_by_fmt(fmt, encodings):
 
     Args:
         fmt:       Format string to look up.
-        encodings: The ``encodings`` dict from ``State`` (i.e., the contents
-                   of ``hallmark.yml``).
+        encodings: The ``encodings`` list from ``State`` (i.e., the contents
+                   of ``config.yml``).
 
     Returns:
         The matching spec dict, or ``None`` if not found.
     """
-    for spec in encodings.get("data", []):
+    for spec in encodings:
         if spec.get("fmt") == fmt:
             return spec
     return None

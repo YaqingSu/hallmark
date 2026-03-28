@@ -31,7 +31,6 @@ class State:
 
     config:    dict         = field(default_factory=dict)
     meta:      dict         = field(default_factory=dict)
-    encodings: dict         = field(default_factory=dict)
     data:      pd.DataFrame = field(
         default_factory=lambda: pd.DataFrame(columns=["sha1", "path"])
     )

@@ -75,7 +75,7 @@ class Repo:
             pf = ParaFrame.parse(
                 fstr,
                 base_path = self.worktree,
-                encodings = self.state.encodings if encoding else None,
+                encodings = self.state.config.get("encodings", []) if encoding else None,
                 encoding = encoding,
                 )
 

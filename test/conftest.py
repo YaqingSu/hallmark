@@ -1,74 +1,96 @@
-import pytest
-import shutil
-import yaml
 from pathlib import Path
-import hallmark
 
-ORIGINAL_YAML = Path("demos/data/.hallmark.yaml")
+import pytest
+import yaml
 
-@pytest.fixture(scope="function")
-def encodings_yaml(tmp_path):
-    tmp_yaml = tmp_path / ".hallmark.yaml"
-    shutil.copy2(ORIGINAL_YAML, tmp_yaml)
-    # hallmark.set_rel_yaml_path(tmp_yaml)
-    hallmark.set_rel_yaml_path(tmp_path)
-    return tmp_yaml
+from hallmark import ParaFrame, Repo
 
-@pytest.fixture(scope="function", autouse=True)
-def _append_tmp_path_entries_to_encodings_yaml(tmp_path, encodings_yaml):
-    encodings_yaml.write_text("data: []\n", encoding="utf-8")
-    y = yaml.safe_load(encodings_yaml.read_text(encoding="utf-8")) or {}
-    y.setdefault("data", [])
-    fmts = [
-        "/a_{a:d}/b_{b:d}.txt",
-        "/a{aspin}/b_{b:d}.txt",
-        "/{mag:d}_mag{aspin}_w{win:d}.h5",
+
+Standard_files = [
+    f"a{a}_i{i}.h5"
+    for a in [0, 0.75, 0.975]
+    for i in [0, 30, 60, 90]
+]
+
+Encoded_files = [
+    f"a{aspin}_i{i}.h5"
+    for aspin in ["m0.5"]
+    for i in [0, 30, 60, 90]
+]
+
+# Actually Write the Standard and Encoded files
+def _write_text_files(root: Path, files: list[str]) -> None:
+    for name in files:
+        (root / name).write_text("test\n", encoding="utf-8")
+
+# Write encoding into config.yml for encoded pf
+def _write_config_with_encodings(repo: Repo) -> None:
+    config = repo.dothm.load_yml("config") or {}
+    config["encodings"] = [
+        {
+            "fmt": "a{aspin}_i{i}.h5",
+            "encoding": {
+                "aspin": r"m([0-9]+(\.[0-9]+)?|\.[0-9]+)"
+            },
+        }
     ]
-    for fmt in fmts:
-        y["data"].append(
-            {
-                "fmt": fmt,
-                "encoding": {"aspin": r"m([0-9]+(\.[0-9]+)?|\.[0-9]+)"},
-            }
-        )
-    encodings_yaml.write_text(yaml.safe_dump(y, sort_keys=False), encoding="utf-8")
-    yield
+    repo.dothm.dump_yml(config, "config")
+    repo.state.config = repo.dothm.load_yml("config")
 
-def spin_format(val):
-    if val == 0:
-        return "0"
-    return f"{val:+g}"
 
-@pytest.fixture(scope = "function")
-def create_temp_data(tmp_path):
-    data_dir = tmp_path
-    print(data_dir)
-    for a in range(10):
-        subdir = data_dir / f"a_{a}"
-        subdir.mkdir(parents=True)
-        for b in range(10, 20):
-            (subdir / f"b_{b}.txt").touch()
-    return data_dir
+@pytest.fixture(scope="session")
+def hallmark_test_suite_dictionary(tmp_path_factory):
 
-@pytest.fixture(scope = "function")
-def create_temp_data_spin(tmp_path):
-    data_dir = tmp_path
-    spins = [-0.5, 0.0, 0.5]
-    for a in spins:
-        subdir = data_dir / f"a{spin_format(a)}"
-        subdir.mkdir(parents=True)
-        for b in range(10, 20):
-            (subdir / f"b_{b}.txt").touch()
-    return data_dir
+    # Make a dedicated folder that we can find for potential debugging
+    tmp_path = tmp_path_factory.mktemp("hallmark_test_session")
+    repo_path = tmp_path / "repo"
 
-@pytest.fixture(scope = "function")
-def create_temp_data_spin_with_m(tmp_path):
-    data_dir = tmp_path
-    spins = ["m0.5", "0", "0.5"]
-    
-    for mag in range(0, 2):   
-        for aspin in spins:       
-            for win in range(10, 20):  
-                file_name = f"{mag}_mag{aspin}_w{win}.h5"
-                (data_dir / file_name).touch()
-    return data_dir
+    # Initialize repo in dedicated folder
+    repo = Repo.init(repo_path)
+
+    # Actually write out listed files in the temporary directory
+    _write_text_files(repo_path, Standard_files)
+    _write_text_files(repo_path, Encoded_files)
+    _write_config_with_encodings(repo)
+
+    # Create paraframes, glob files, glob pattern and repo behavior objects
+    standard_pf = ParaFrame.parse("a{a}_i{i}.h5", base_path=repo.worktree)
+
+    encoded_pf = ParaFrame.parse(
+        "a{aspin}_i{i}.h5",
+        base_path=repo.worktree,
+        encodings=repo.state.config.get("encodings", []),
+        encoding=True,
+    )
+
+    standard_globbed_files, standard_glob_pattern = ParaFrame.glob_search(
+        "a{a}_i{i}.h5",
+        base_path=repo.worktree,
+        return_pattern=True,
+    )
+
+    encoded_globbed_files, encoded_glob_pattern = ParaFrame.glob_search(
+        "a{aspin}_i{i}.h5",
+        base_path=repo.worktree,
+        encodings=repo.state.config.get("encodings", []),
+        encoding=True,
+        return_pattern=True,
+    )
+
+    add_result = repo.add("a{a}_i{i}.h5")
+    commit_result = repo.commit("Commit test")
+
+    # Return any potential object needed for testing
+    return {
+        "standard_pf": standard_pf,
+        "encoded_pf": encoded_pf,
+        "standard_files": Standard_files,
+        "encoded_files": Encoded_files,
+        "standard_globbed_files": standard_globbed_files,
+        "standard_glob_pattern": standard_glob_pattern,
+        "encoded_globbed_files": encoded_globbed_files,
+        "encoded_glob_pattern": encoded_glob_pattern,
+        "add_result": add_result,
+        "commit_result": commit_result,
+        "repo_path": repo_path,
+    }

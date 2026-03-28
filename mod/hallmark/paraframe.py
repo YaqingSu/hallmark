@@ -106,8 +106,8 @@ class ParaFrame(pd.DataFrame):
             pattern.
             Fields wrapped in ``{}`` will be extracted into columns.
         *args: Positional arguments used to fill the format string.
-        encodings (dict):   The ``encodings`` dict from ``State``
-            (contents of ``hallmark.yml``).
+        encodings (dict):   The ``encodings`` list from ``State``
+            (contents of ``config.yml``).
             Defaults to ``{}``.
         base_path (Path):   Root directory to search from.
             Defaults to ``Path.cwd()``.
@@ -140,7 +140,7 @@ class ParaFrame(pd.DataFrame):
         needs_encoding = None
 
         if encoding:
-            for entry in encodings.get("data", []):
+            for entry in encodings:
                 if entry.get("fmt") in fmt:
                     fmt_enc = entry["fmt"]
                     break
@@ -226,9 +226,8 @@ class ParaFrame(pd.DataFrame):
         Example:
             >>> from hallmark import ParaFrame
             >>> pf = ParaFrame.parse(
-            ...     "data/run{run:d}_p{parameter:d}.csv",
-            ...     encodings=repo.state.encodings,
-            ...     base_path=repo.worktree,
+            ...     "/custom_parameter{custom_parameter}_p{parameter}.h5",
+            ...     encoding=True
             ... )
         """
         base_path = Path(base_path) if base_path is not None else Path.cwd()
