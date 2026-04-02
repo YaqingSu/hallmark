@@ -43,9 +43,9 @@ def test_cli():
             result = runner.invoke(hallmark, ["add", "a{a}_i{i}.h5"])
             assert result.exit_code == 0
 
-            c, l = parse(result)
+            c, ls = parse(result)
             assert c == 12
-            assert sorted(l) == sorted(files)
+            assert sorted(ls) == sorted(files)
 
             result = runner.invoke(hallmark, ["commit", "-m", "Commit test"])
             assert result.exit_code == 0

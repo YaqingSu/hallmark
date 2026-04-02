@@ -32,7 +32,8 @@ def test_standard_pf_values(hallmark_test_suite_dictionary):
 
 def test_standard_pf_paths_match_created_files(hallmark_test_suite_dictionary):
     pf = hallmark_test_suite_dictionary["standard_pf"]
-    assert sorted(pf["path"]) == sorted(hallmark_test_suite_dictionary["standard_files"])
+    assert sorted(pf["path"]) == sorted(
+        hallmark_test_suite_dictionary["standard_files"])
 
 def test_standard_pf_supports_pandas_methods(hallmark_test_suite_dictionary):
     pf = hallmark_test_suite_dictionary["standard_pf"]
@@ -124,7 +125,8 @@ def test_repo_add_result_has_expected_length(hallmark_test_suite_dictionary):
 
 def test_repo_add_result_paths_match_standard_files(hallmark_test_suite_dictionary):
     result = hallmark_test_suite_dictionary["add_result"]
-    assert sorted(result["path"]) == sorted(hallmark_test_suite_dictionary["standard_files"])
+    assert sorted(result["path"]) == sorted(
+        hallmark_test_suite_dictionary["standard_files"])
 
 def test_repo_commit_succeeds(hallmark_test_suite_dictionary):
     assert hallmark_test_suite_dictionary["commit_result"] is True
