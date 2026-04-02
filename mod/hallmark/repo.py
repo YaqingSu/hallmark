@@ -15,6 +15,8 @@
 
 from __future__ import annotations
 
+import os
+from contextlib  import contextmanager
 from dataclasses import dataclass
 from typing      import Optional
 from pathlib     import Path
@@ -24,6 +26,16 @@ from .state      import State
 from .dothm      import Dothm
 from .worktree   import Worktree
 from .paraframe  import ParaFrame
+
+
+@contextmanager
+def chdir(path):
+    old = os.getcwd()
+    os.chdir(path)
+    try:
+        yield
+    finally:
+        os.chdir(old)
 
 
 @dataclass(init=False)
@@ -72,7 +84,6 @@ class Repo:
             raise RuntimeError(
                 "cannot add files in a bare repository without a worktree")
 
-        from contextlib import chdir
         with chdir(self.worktree):
             pf = ParaFrame.parse(
                 fstr,

@@ -13,11 +13,22 @@
 # limitations under the License.
 
 
-from pathlib       import Path
-from contextlib    import chdir
-from click.testing import CliRunner
+import os
+from pathlib        import Path
+from contextlib     import contextmanager
+from click.testing  import CliRunner
 
 from hallmark.cli import hallmark
+
+
+@contextmanager
+def chdir(path):
+    old = os.getcwd()
+    os.chdir(path)
+    try:
+        yield
+    finally:
+        os.chdir(old)
 
 
 files = [f"a{a}_i{i}.h5"
