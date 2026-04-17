@@ -15,6 +15,7 @@
 
 from __future__ import annotations
 
+from io import StringIO
 import os
 from contextlib  import contextmanager
 from dataclasses import dataclass
@@ -22,11 +23,13 @@ from typing      import Optional
 from pathlib     import Path
 from hashlib     import sha1
 
+import pandas as pd
+
 from .state      import State
 from .dothm      import Dothm
 from .worktree   import Worktree
 from .paraframe  import ParaFrame
-from .index      import Index
+from .objects    import Objects
 
 
 @contextmanager
@@ -66,17 +69,17 @@ class Repo:
         self.state    = self.dothm.load()
         
         common = Path(self.dothm.common_dir).resolve().parent
-        self.index = Index(common)
-        dothm_index = Path(dothm_path) / "index"
-        main_index  = common / "index"
-        if dothm_index.resolve() != main_index.resolve() and not dothm_index.exists():
-            dothm_index.symlink_to(main_index)
+        self.objects = Objects(common)
+        dothm_objects = Path(dothm_path) / "objects"
+        main_objects  = common / "objects"
+        if dothm_objects.resolve() != main_objects.resolve() and not dothm_objects.exists():
+            dothm_objects.symlink_to(main_objects)
 
     @classmethod
     def init(cls, path: Path | str) -> "Repo":
         dothm_path, worktree_path = cls.lwpaths(path)
         Dothm.init(dothm_path).dump(State())
-        Index(dothm_path) 
+        Objects(dothm_path) 
         worktree_path and Worktree.init(worktree_path)
         return cls(path)
 
@@ -87,6 +90,42 @@ class Repo:
             for block in iter(lambda: f.read(chunk_size), b""):
                 digest.update(block)
         return digest.hexdigest()
+
+    def _tracked_paths(self) -> set[Path]:
+        return {Path(path) for path in self.state.data["path"].astype(str)}
+
+    def _ensure_clean_tracked_files(self) -> None:
+        if self.worktree is None:
+            raise RuntimeError("cannot checkout without a worktree")
+
+        for _, row in self.state.data.iterrows():
+            path = self.worktree / row["path"]
+            if not path.exists():
+                raise RuntimeError(
+                    f'tracked file "{row["path"]}" is missing; commit or restore it before checkout')
+            if self.checksum(path) != row["sha1"]:
+                raise RuntimeError(
+                    f'tracked file "{row["path"]}" has uncommitted changes; commit them before checkout')
+
+        if self.dothm.index.diff("HEAD"):
+            raise RuntimeError(
+                "you have uncommitted hallmark state changes — commit them before checkout")
+
+    def _load_branch_data(self, branch: str) -> State:
+        if branch in {head.name for head in self.dothm.heads}:
+            data = self.dothm.git.show(f"{branch}:data.tsv")
+            frame = State().data if not data.strip() else None
+            if frame is None:
+                parsed = pd.read_csv(StringIO(data), sep="\t")
+            else:
+                parsed = frame
+            return State(self.state.config, self.state.meta, parsed)
+
+        return State(
+            dict(self.state.config),
+            dict(self.state.meta),
+            self.state.data.copy(),
+        )
 
     def add(self, fstr: str, encoding: bool = False) -> ParaFrame:
         if self.worktree is None:
@@ -118,13 +157,53 @@ class Repo:
 
         if allow_empty or self.dothm.index.diff("HEAD"):
             for _, row in self.state.data.iterrows():
-                self.index.store(self.worktree / row["path"], row["sha1"])
+                self.objects.store(self.worktree / row["path"], row["sha1"])
             self.dothm.index.commit(msg)
             return True
         else:
             return False
 
     def checkout(self, target_branch: str) -> bool:
+        if not isinstance(target_branch, str) or not target_branch.strip():
+            raise ValueError("branch name must be a non-empty string")
+
+        if self.worktree is None:
+            raise RuntimeError("cannot checkout without a worktree")
+        self._ensure_clean_tracked_files()
+
+        existing = {head.name for head in self.dothm.heads}
+        new_branch = target_branch not in existing
+        current_tracked = self._tracked_paths()
+        target_state = self._load_branch_data(target_branch)
+
+        for rel in target_state.data["path"].astype(str):
+            rel_path = Path(rel)
+            if rel_path not in current_tracked and (self.worktree / rel_path).exists():
+                raise RuntimeError(
+                    f'target tracked path "{rel}" already exists as an untracked file')
+
+        # remove current tracked files from worktree
+        for _, row in self.state.data.iterrows():
+            path = self.worktree / row["path"]
+            if path.exists():
+                path.unlink()
+
+        # switch .hm branch
+        if new_branch:
+            self.dothm.git.checkout("-b", target_branch)
+        else:
+            self.dothm.git.checkout(target_branch)
+
+        # reload state from the new branch
+        self.state = self.dothm.load()
+
+        # restore files from objects store via hardlinks
+        for _, row in self.state.data.iterrows():
+            self.objects.restore(row["sha1"], self.worktree / row["path"])
+
+        return True
+
+    def add_worktree(self, target_branch: str) -> bool:
         from shutil import copy2
         from git.exc import GitCommandError
 
@@ -132,14 +211,14 @@ class Repo:
             raise ValueError("branch name must be a non-empty string")
 
         if self.worktree is None:
-            raise RuntimeError("cannot checkout a bare repository without a worktree")
-        
+            raise RuntimeError("cannot add a worktree in a bare repository without a worktree")
+
         source = Path(self.worktree).resolve()
         target = source.parent / target_branch
         target_dothm = target / ".hm"
-        
+
         linked_dothm = None
-        
+
         if target_dothm.exists():
             linked_dothm = Dothm(target_dothm)
         else:
@@ -153,7 +232,7 @@ class Repo:
                     linked_dothm = Dothm(target_dothm)
             except GitCommandError as e:
                 raise RuntimeError(f'failed to create worktree for branch "{target_branch}": {e}')
-            
+
             target_state = linked_dothm.load()
             for rel in target_state.data["path"]:
                 rel_path = Path(rel)

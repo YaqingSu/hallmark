@@ -104,15 +104,19 @@ def commit(repo, message):
     else:
         click.echo("No changes added to commit.")
 
-@hallmark.command(short_help="Checkout to a worktree branch.")
+@hallmark.command(short_help="Switch to another branch.")
 @click.argument("target_branch")
 @click.pass_obj
 def checkout(repo, target_branch):
-    """Checkout to another worktree branch and restore the state saved in data.tsv.
+    """Switch branches and rewrite tracked files from branch state.
 
     This is analogous to `git checkout BRANCH`.
+    If the branch does not exist, it is created from the current branch.
+    Only hallmark-tracked files are rewritten; unrelated files are left
+    alone unless they block restoration of a tracked path.
     """
-    if repo.checkout(target_branch):
-        click.echo(f'Checked out to "{target_branch}".')
-    else:
-        click.echo("No branches to checkout.")
+    try:
+        if repo.checkout(target_branch):
+            click.echo(f'Switched to branch "{target_branch}".')
+    except (GitError, RuntimeError, ValueError, FileNotFoundError) as e:
+        raise ClickException(str(e))

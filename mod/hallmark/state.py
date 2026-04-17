@@ -18,6 +18,9 @@ from dataclasses import dataclass, field
 import pandas as pd
 
 
+PERSISTED_COLUMNS = ["sha1", "path"]
+
+
 @dataclass
 class State:
     """In-memory hallmark state database.
@@ -32,15 +35,20 @@ class State:
     config:    dict         = field(default_factory=dict)
     meta:      dict         = field(default_factory=dict)
     data:      pd.DataFrame = field(
-        default_factory=lambda: pd.DataFrame(columns=["sha1", "path"])
+        default_factory=lambda: pd.DataFrame(columns=PERSISTED_COLUMNS)
     )
 
     def update(self, pf):
-        merged = pd.concat([self.data, pf], ignore_index=True, sort=False)
+        if pf.empty:
+            incoming = pd.DataFrame(columns=PERSISTED_COLUMNS)
+        else:
+            incoming = pf.loc[:, PERSISTED_COLUMNS].copy()
+
+        merged = pd.concat([self.data, incoming], ignore_index=True, sort=False)
 
         # If the same path is added again (e.g., file content changed
         # and a new sha1 is computed), keep only the newest row for
         # that key.
         deduped = merged.drop_duplicates(subset=["path"], keep="last")
 
-        self.data = deduped
+        self.data = deduped.loc[:, PERSISTED_COLUMNS]

@@ -47,6 +47,7 @@ class Dothm(Repo):
     def init(cls, *args, **kwargs) -> "Dothm":
         if kwargs.get('bare', False):
             raise DothmError('A ".hm" directory must not be a bare git repository')
+        kwargs.setdefault("initial_branch", "main")
 
         dothm = super().init(*args, **kwargs)
         readme_path = dothm.path / "README.md"

@@ -61,3 +61,22 @@ def test_cli():
             result = runner.invoke(hallmark, ["commit", "-m", "Commit test"])
             assert result.exit_code == 0
             assert "Committed staged state changes." in result.output
+
+            result = runner.invoke(hallmark, ["checkout", "experiment"])
+            assert result.exit_code == 0
+            assert 'Switched to branch "experiment".' in result.output
+
+            Path("b0_i45.h5").write_text("branch data\n", encoding="utf-8")
+            result = runner.invoke(hallmark, ["add", "b{spin}_i{inc}.h5"])
+            assert result.exit_code == 0
+            result = runner.invoke(hallmark, ["commit", "-m", "Commit experiment"])
+            assert result.exit_code == 0
+
+            result = runner.invoke(hallmark, ["checkout", "main"])
+            assert result.exit_code == 0
+            assert not Path("b0_i45.h5").exists()
+
+            Path("a0_i0.h5").write_text("dirty\n", encoding="utf-8")
+            result = runner.invoke(hallmark, ["checkout", "experiment"])
+            assert result.exit_code != 0
+            assert "has uncommitted changes" in result.output

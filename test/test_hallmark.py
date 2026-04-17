@@ -1,4 +1,7 @@
+from pathlib import Path
+
 import pandas as pd
+import pytest
 
 from hallmark import Repo
 from hallmark import ParaFrame
@@ -135,3 +138,98 @@ def test_data_tsv_and_worktree_reconstruction(hallmark_test_suite_dictionary):
     repo = Repo(hallmark_test_suite_dictionary["repo_path"])
     assert len(repo.state.data) == 12
     assert repo.worktree.stem == "repo"
+
+
+def _write_files(root, names):
+    for name in names:
+        (root / name).write_text(f"{name}\n", encoding="utf-8")
+
+
+def test_repo_add_persists_only_sha1_and_path(tmp_path):
+    repo = Repo.init(tmp_path / "repo")
+    _write_files(repo.worktree, ["a0_i0.h5", "a0_i30.h5"])
+
+    result = repo.add("a{a}_i{i}.h5")
+
+    assert list(result.columns) == ["path", "a", "i"]
+    persisted = repo.dothm.load_tsv("data")
+    assert list(persisted.columns) == ["sha1", "path"]
+    assert sorted(persisted["path"]) == ["a0_i0.h5", "a0_i30.h5"]
+
+
+def test_checkout_rewrites_tracked_files_and_shares_objects(tmp_path):
+    repo = Repo.init(tmp_path / "repo")
+    _write_files(repo.worktree, ["a0_i0.h5", "a0_i30.h5"])
+    repo.add("a{a}_i{i}.h5")
+    repo.commit("main data")
+
+    main_objects = sorted(p.relative_to(repo.dothm.path) for p in (repo.dothm.path / "objects").rglob("*") if p.is_file())
+    assert len(main_objects) == 2
+
+    repo.checkout("experiment")
+    _write_files(repo.worktree, ["b0_i45.h5", "b1_i90.h5"])
+    repo.add("b{spin}_i{inc}.h5")
+    repo.commit("experiment data")
+
+    experiment_files = sorted(path.name for path in Path(repo.worktree).glob("*.h5"))
+    assert experiment_files == ["a0_i0.h5", "a0_i30.h5", "b0_i45.h5", "b1_i90.h5"]
+
+    repo.checkout("main")
+    main_files = sorted(path.name for path in Path(repo.worktree).glob("*.h5"))
+    assert main_files == ["a0_i0.h5", "a0_i30.h5"]
+
+    objects_after = [p for p in (repo.dothm.path / "objects").rglob("*") if p.is_file()]
+    assert len(objects_after) == 4
+
+    repo.checkout("experiment")
+    roundtrip_files = sorted(path.name for path in Path(repo.worktree).glob("*.h5"))
+    assert roundtrip_files == ["a0_i0.h5", "a0_i30.h5", "b0_i45.h5", "b1_i90.h5"]
+
+
+def test_checkout_leaves_untracked_files(tmp_path):
+    repo = Repo.init(tmp_path / "repo")
+    _write_files(repo.worktree, ["a0_i0.h5"])
+    repo.add("a{a}_i{i}.h5")
+    repo.commit("main data")
+
+    repo.checkout("experiment")
+    _write_files(repo.worktree, ["b0_i45.h5"])
+    repo.add("b{spin}_i{inc}.h5")
+    repo.commit("experiment data")
+    (repo.worktree / "notes.txt").write_text("keep me\n", encoding="utf-8")
+
+    repo.checkout("main")
+
+    assert (repo.worktree / "notes.txt").read_text(encoding="utf-8") == "keep me\n"
+    assert sorted(path.name for path in Path(repo.worktree).glob("*.h5")) == ["a0_i0.h5"]
+
+
+def test_checkout_aborts_on_dirty_tracked_file(tmp_path):
+    repo = Repo.init(tmp_path / "repo")
+    _write_files(repo.worktree, ["a0_i0.h5"])
+    repo.add("a{a}_i{i}.h5")
+    repo.commit("main data")
+    repo.checkout("experiment")
+    repo.checkout("main")
+    (repo.worktree / "a0_i0.h5").write_text("changed\n", encoding="utf-8")
+
+    with pytest.raises(RuntimeError, match='tracked file "a0_i0.h5" has uncommitted changes'):
+        repo.checkout("experiment")
+
+
+def test_checkout_aborts_on_untracked_path_conflict(tmp_path):
+    repo = Repo.init(tmp_path / "repo")
+    _write_files(repo.worktree, ["a0_i0.h5"])
+    repo.add("a{a}_i{i}.h5")
+    repo.commit("main data")
+
+    repo.checkout("experiment")
+    _write_files(repo.worktree, ["b0_i45.h5"])
+    repo.add("b{spin}_i{inc}.h5")
+    repo.commit("experiment data")
+    repo.checkout("main")
+
+    (repo.worktree / "b0_i45.h5").write_text("untracked blocker\n", encoding="utf-8")
+
+    with pytest.raises(RuntimeError, match='target tracked path "b0_i45.h5" already exists as an untracked file'):
+        repo.checkout("experiment")
