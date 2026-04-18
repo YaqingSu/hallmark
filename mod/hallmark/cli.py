@@ -70,25 +70,114 @@ def info(repo):
     click.echo(f'hallmark worktree: "{repo.worktree}"')
 
 
-@hallmark.command(short_help="Add files to hallmark index using a Python f-string.")
-@click.argument("fstring")
+@hallmark.command(short_help="Show worktree and staged hallmark state.")
 @click.pass_obj
-def add(repo, fstring):
-    """Add files discovered via a Python format string to the hallmark index.
+def status(repo):
+    """Show hallmark status for the current branch and worktree."""
+    snapshot = repo.status()
 
-    This is analogous to `git add FILE`, which adds file contents to
-    the "index" (also known as the "staging area").
-    Instead of specifying file names directly, this function uses a
-    Python format string (i.e., an f-string) to discover and add
-    matching files to the hallmark index.
+    click.echo(f'On branch {snapshot["branch"]}')
+
+    staged = snapshot["staged"]
+    worktree = snapshot["worktree"]
+    untracked = snapshot["untracked"]
+
+    def emit_section(title, entries, fg):
+        if not entries:
+            return
+        click.echo("")
+        click.secho(title, fg=fg)
+        for label, paths in entries:
+            for path in paths:
+                click.echo("  " + click.style(f"{label}:   {path}", fg=fg))
+
+    emit_section(
+        "Changes to be committed:",
+        [
+            ("new file", staged["added"]),
+            ("modified", staged["modified"]),
+            ("deleted", staged["deleted"]),
+        ],
+        "green",
+    )
+    emit_section(
+        "Changes not staged for commit:",
+        [
+            ("modified", worktree["modified"]),
+            ("deleted", worktree["deleted"]),
+        ],
+        "red",
+    )
+    if untracked:
+        click.echo("")
+        click.secho("Untracked files:", fg="red")
+        for path in untracked:
+            click.echo("  " + click.style(path, fg="red"))
+
+    if not any([staged["added"], staged["modified"], staged["deleted"],
+                worktree["modified"], worktree["deleted"], untracked]):
+        click.echo("")
+        click.echo("nothing to commit, working tree clean")
+
+
+@hallmark.command(short_help="Add files to hallmark index.")
+@click.argument("inputs", nargs=-1, required=True)
+@click.pass_obj
+def add(repo, inputs):
+    """Add files to the hallmark index.
+
+    `hallmark add FORMAT` uses the branch format string workflow.
+    `hallmark add "."` rebuilds the manifest from current files that match
+    the branch `fmt` in `config.yml`.
+    Explicit path inputs such as shell-expanded `*` are not supported yet
+    with the parameter-based manifest format.
     """
-    pf = repo.add(fstring)
+    try:
+        if len(inputs) == 1:
+            pf = repo.add(inputs[0])
+        else:
+            pf = repo.add_paths(list(inputs))
+    except (RuntimeError, ValueError, FileNotFoundError) as e:
+        raise ClickException(str(e))
 
     if pf.empty:
         click.echo("No files matched the format string.")
     else:
         click.echo("Changes to be committed")
         click.echo(pf.path.to_string(index=False, header=False))
+
+
+@hallmark.command("set-config", short_help="Update hallmark branch config.")
+@click.option("--fmt")
+@click.option("--remote-name")
+@click.option("--remote-url")
+@click.option("--encoding", "encodings", multiple=True)
+@click.pass_obj
+def set_config(repo, fmt, remote_name, remote_url, encodings):
+    """Update the current branch config.yml."""
+    if not any([fmt, remote_name, remote_url, encodings]):
+        raise ClickException("No config changes requested.")
+
+    encoding_updates = {}
+    for item in encodings:
+        if "=" not in item:
+            raise ClickException('encoding values must use FIELD=REGEX')
+        field, regex = item.split("=", 1)
+        if not field:
+            raise ClickException('encoding values must use FIELD=REGEX')
+        encoding_updates[field] = regex
+
+    try:
+        repo.set_config(
+            fmt=fmt,
+            remote_name=remote_name,
+            remote_url=remote_url,
+            encoding_updates=encoding_updates or None,
+        )
+    except (RuntimeError, ValueError, FileNotFoundError) as e:
+        raise ClickException(str(e))
+
+    click.echo("Updated hallmark config.")
 
 
 @hallmark.command(short_help="Commit changes to the repository.")

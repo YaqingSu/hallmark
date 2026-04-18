@@ -15,7 +15,6 @@
 
 from __future__ import annotations
 
-from io import StringIO
 import os
 from contextlib  import contextmanager
 from dataclasses import dataclass
@@ -23,13 +22,17 @@ from typing      import Optional
 from pathlib     import Path
 from hashlib     import sha1
 
-import pandas as pd
+from git.exc import GitCommandError
 
 from .state      import State
 from .dothm      import Dothm
 from .worktree   import Worktree
 from .paraframe  import ParaFrame
 from .objects    import Objects
+from .repo_config import branch_encodings, branch_fmt, path_from_row, row_to_path, set_branch_fmt, set_config as repo_set_config
+from .repo_manifest import manifest_frame_from_pf, manifest_map
+from .repo_state import load_branch_data, load_head_state
+from .repo_worktree import effective_cwd, ensure_clean_tracked_files, filtered_paraframe, tracked_paths
 
 
 @contextmanager
@@ -67,6 +70,7 @@ class Repo:
         self.dothm    = Dothm(dothm_path)
         self.worktree = worktree_path and Worktree(worktree_path)
         self.state    = self.dothm.load()
+        self.paraframe_cls = ParaFrame
         
         common = Path(self.dothm.common_dir).resolve().parent
         self.objects = Objects(common)
@@ -78,7 +82,11 @@ class Repo:
     @classmethod
     def init(cls, path: Path | str) -> "Repo":
         dothm_path, worktree_path = cls.lwpaths(path)
-        Dothm.init(dothm_path).dump(State())
+        dothm = Dothm.init(dothm_path)
+        (dothm.path / "config.yml").write_text(Dothm.config_template(), encoding="utf-8")
+        dothm.dump_yml({}, "meta")
+        dothm.dump_tsv(State().data, "data")
+        dothm.index.add(["config.yml", "meta.yml", "data.tsv"])
         Objects(dothm_path) 
         worktree_path and Worktree.init(worktree_path)
         return cls(path)
@@ -91,63 +99,118 @@ class Repo:
                 digest.update(block)
         return digest.hexdigest()
 
-    def _tracked_paths(self) -> set[Path]:
-        return {Path(path) for path in self.state.data["path"].astype(str)}
+    def add_paths(self, paths: list[Path | str]) -> ParaFrame:
+        raise RuntimeError(
+            'explicit path add is not supported while data.tsv stores only sha1 plus fmt fields')
 
-    def _ensure_clean_tracked_files(self) -> None:
-        if self.worktree is None:
-            raise RuntimeError("cannot checkout without a worktree")
-
-        for _, row in self.state.data.iterrows():
-            path = self.worktree / row["path"]
-            if not path.exists():
-                raise RuntimeError(
-                    f'tracked file "{row["path"]}" is missing; commit or restore it before checkout')
-            if self.checksum(path) != row["sha1"]:
-                raise RuntimeError(
-                    f'tracked file "{row["path"]}" has uncommitted changes; commit them before checkout')
-
-        if self.dothm.index.diff("HEAD"):
-            raise RuntimeError(
-                "you have uncommitted hallmark state changes — commit them before checkout")
-
-    def _load_branch_data(self, branch: str) -> State:
-        if branch in {head.name for head in self.dothm.heads}:
-            data = self.dothm.git.show(f"{branch}:data.tsv")
-            frame = State().data if not data.strip() else None
-            if frame is None:
-                parsed = pd.read_csv(StringIO(data), sep="\t")
-            else:
-                parsed = frame
-            return State(self.state.config, self.state.meta, parsed)
-
-        return State(
-            dict(self.state.config),
-            dict(self.state.meta),
-            self.state.data.copy(),
+    def set_config(
+        self,
+        *,
+        fmt: str | None = None,
+        remote_name: str | None = None,
+        remote_url: str | None = None,
+        encoding_updates: dict[str, str] | None = None,
+    ) -> dict:
+        repo_set_config(
+            self,
+            fmt=fmt,
+            remote_name=remote_name,
+            remote_url=remote_url,
+            encoding_updates=encoding_updates,
         )
+        self.dothm.dump(self.state)
+        return self.state.config
+
+    def status(self) -> dict[str, object]:
+        head_state = load_head_state(self)
+        head_map = manifest_map(head_state)
+        staged_map = manifest_map(self.state)
+
+        staged_added = sorted(path for path in staged_map if path not in head_map)
+        staged_deleted = sorted(path for path in head_map if path not in staged_map)
+        staged_modified = sorted(
+            path for path in staged_map
+            if path in head_map and staged_map[path] != head_map[path]
+        )
+
+        worktree_modified: list[str] = []
+        worktree_deleted: list[str] = []
+        tracked_paths = set(staged_map)
+
+        if self.worktree is not None:
+            for path, staged_sha1 in staged_map.items():
+                full_path = self.worktree / path
+                if not full_path.exists():
+                    worktree_deleted.append(path)
+                elif self.checksum(full_path) != staged_sha1:
+                    worktree_modified.append(path)
+
+            untracked = sorted(
+                str(path.relative_to(self.worktree))
+                for path in effective_cwd(self).rglob("*")
+                if path.is_file()
+                and ".hm" not in path.relative_to(self.worktree).parts
+                and str(path.relative_to(self.worktree)) not in tracked_paths
+            )
+        else:
+            untracked = []
+
+        return {
+            "branch": self.dothm.active_branch.name,
+            "staged": {
+                "added": staged_added,
+                "modified": staged_modified,
+                "deleted": staged_deleted,
+            },
+            "worktree": {
+                "modified": sorted(worktree_modified),
+                "deleted": sorted(worktree_deleted),
+            },
+            "untracked": untracked,
+        }
 
     def add(self, fstr: str, encoding: bool = False) -> ParaFrame:
         if self.worktree is None:
             raise RuntimeError(
                 "cannot add files in a bare repository without a worktree")
 
+        if fstr == ".":
+            fmt = branch_fmt(self)
+            with chdir(self.worktree):
+                pf = ParaFrame.parse(
+                    fmt,
+                    base_path=self.worktree,
+                    encodings=branch_encodings(self) if encoding else None,
+                    encoding=encoding,
+                )
+            pf = filtered_paraframe(self, pf)
+            if not pf.empty:
+                pf["sha1"] = [
+                    self.checksum(self.worktree / Path(path))
+                    for path in pf["path"].astype(str)
+                ]
+            self.state.replace(manifest_frame_from_pf(pf, fmt))
+            self.dothm.dump(self.state)
+            return pf.drop(columns=["sha1"], errors="ignore")
+
+        set_branch_fmt(self, fstr)
+
         with chdir(self.worktree):
             pf = ParaFrame.parse(
                 fstr,
                 base_path = self.worktree,
-                encodings = self.state.config.get("encodings", [])
+                encodings = branch_encodings(self)
                             if encoding else None,
                 encoding = encoding,
                 )
 
         if not pf.empty:
             pf["sha1"] = [
-                self.checksum(self.worktree / path)
+                self.checksum(self.worktree / Path(path))
                 for path in pf["path"].astype(str)
             ]
 
-        self.state.update(pf)
+        self.state.update(manifest_frame_from_pf(pf, fstr))
         self.dothm.dump(self.state)
         return pf.drop(columns=["sha1"], errors="ignore")
 
@@ -157,7 +220,7 @@ class Repo:
 
         if allow_empty or self.dothm.index.diff("HEAD"):
             for _, row in self.state.data.iterrows():
-                self.objects.store(self.worktree / row["path"], row["sha1"])
+                self.objects.store(self.worktree / path_from_row(self, row), row["sha1"])
             self.dothm.index.commit(msg)
             return True
         else:
@@ -169,22 +232,22 @@ class Repo:
 
         if self.worktree is None:
             raise RuntimeError("cannot checkout without a worktree")
-        self._ensure_clean_tracked_files()
+        ensure_clean_tracked_files(self)
 
         existing = {head.name for head in self.dothm.heads}
         new_branch = target_branch not in existing
-        current_tracked = self._tracked_paths()
-        target_state = self._load_branch_data(target_branch)
+        current_tracked = tracked_paths(self)
+        target_state = load_branch_data(self, target_branch)
 
-        for rel in target_state.data["path"].astype(str):
-            rel_path = Path(rel)
+        for _, row in target_state.data.iterrows():
+            rel_path = row_to_path(row, target_state.config["data"][0]["fmt"])
             if rel_path not in current_tracked and (self.worktree / rel_path).exists():
                 raise RuntimeError(
-                    f'target tracked path "{rel}" already exists as an untracked file')
+                    f'target tracked path "{rel_path}" already exists as an untracked file')
 
         # remove current tracked files from worktree
         for _, row in self.state.data.iterrows():
-            path = self.worktree / row["path"]
+            path = self.worktree / path_from_row(self, row)
             if path.exists():
                 path.unlink()
 
@@ -199,7 +262,7 @@ class Repo:
 
         # restore files from objects store via hardlinks
         for _, row in self.state.data.iterrows():
-            self.objects.restore(row["sha1"], self.worktree / row["path"])
+            self.objects.restore(row["sha1"], self.worktree / path_from_row(self, row))
 
         return True
 
@@ -234,8 +297,8 @@ class Repo:
                 raise RuntimeError(f'failed to create worktree for branch "{target_branch}": {e}')
 
             target_state = linked_dothm.load()
-            for rel in target_state.data["path"]:
-                rel_path = Path(rel)
+            for _, row in target_state.data.iterrows():
+                rel_path = row_to_path(row, target_state.config["data"][0]["fmt"])
                 src = source / rel_path
                 dest = target / rel_path
                 dest.parent.mkdir(parents=True, exist_ok=True)

@@ -18,7 +18,7 @@ from dataclasses import dataclass, field
 import pandas as pd
 
 
-PERSISTED_COLUMNS = ["sha1", "path"]
+COLUMNS = ["sha1"]
 
 
 @dataclass
@@ -35,20 +35,41 @@ class State:
     config:    dict         = field(default_factory=dict)
     meta:      dict         = field(default_factory=dict)
     data:      pd.DataFrame = field(
-        default_factory=lambda: pd.DataFrame(columns=PERSISTED_COLUMNS)
+        default_factory=lambda: pd.DataFrame(columns=COLUMNS)
     )
 
     def update(self, pf):
         if pf.empty:
-            incoming = pd.DataFrame(columns=PERSISTED_COLUMNS)
+            incoming = pd.DataFrame(columns=self.data.columns if len(self.data.columns) else COLUMNS)
         else:
-            incoming = pf.loc[:, PERSISTED_COLUMNS].copy()
+            incoming_columns = ["sha1"] + [
+                col for col in pf.columns
+                if col not in {"sha1", "path"}
+            ]
+            incoming = pf.loc[:, incoming_columns].copy()
+            for column in incoming.columns:
+                if column != "sha1":
+                    incoming[column] = incoming[column].astype(str)
 
         merged = pd.concat([self.data, incoming], ignore_index=True, sort=False)
 
-        # If the same path is added again (e.g., file content changed
-        # and a new sha1 is computed), keep only the newest row for
-        # that key.
-        deduped = merged.drop_duplicates(subset=["path"], keep="last")
+        key_columns = [column for column in merged.columns if column != "sha1"]
+        if key_columns:
+            deduped = merged.drop_duplicates(subset=key_columns, keep="last")
+        else:
+            deduped = merged
 
-        self.data = deduped.loc[:, PERSISTED_COLUMNS]
+        self.data = deduped.loc[:, ["sha1", *key_columns]]
+
+    def replace(self, pf):
+        if pf.empty:
+            self.data = pd.DataFrame(columns=self.data.columns if len(self.data.columns) else COLUMNS)
+        else:
+            columns = ["sha1"] + [
+                col for col in pf.columns
+                if col not in {"sha1", "path"}
+            ]
+            self.data = pf.loc[:, columns].copy()
+            for column in self.data.columns:
+                if column != "sha1":
+                    self.data[column] = self.data[column].astype(str)

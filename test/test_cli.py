@@ -66,17 +66,126 @@ def test_cli():
             assert result.exit_code == 0
             assert 'Switched to branch "experiment".' in result.output
 
-            Path("b0_i45.h5").write_text("branch data\n", encoding="utf-8")
-            result = runner.invoke(hallmark, ["add", "b{spin}_i{inc}.h5"])
+            Path("a0_i0.h5").unlink()
+            Path("a0_i30.h5").unlink()
+            Path("a0_i60.h5").unlink()
+            Path("a0_i90.h5").unlink()
+            Path("a0.75_i0.h5").unlink()
+            Path("a0.75_i30.h5").unlink()
+            Path("a0.75_i60.h5").unlink()
+            Path("a0.75_i90.h5").unlink()
+            Path("a0.975_i0.h5").unlink()
+            Path("a0.975_i30.h5").unlink()
+            Path("a0.975_i60.h5").unlink()
+            Path("a0.975_i90.h5").unlink()
+            Path("a1_i45.h5").write_text("a1_i45.h5\n", encoding="utf-8")
+            result = runner.invoke(hallmark, ["add", "."])
             assert result.exit_code == 0
             result = runner.invoke(hallmark, ["commit", "-m", "Commit experiment"])
             assert result.exit_code == 0
 
             result = runner.invoke(hallmark, ["checkout", "main"])
             assert result.exit_code == 0
-            assert not Path("b0_i45.h5").exists()
+            assert not Path("a1_i45.h5").exists()
 
             Path("a0_i0.h5").write_text("dirty\n", encoding="utf-8")
             result = runner.invoke(hallmark, ["checkout", "experiment"])
             assert result.exit_code != 0
             assert "has uncommitted changes" in result.output
+
+
+def test_cli_add_dot_and_explicit_paths():
+    runner = CliRunner()
+    with runner.isolated_filesystem():
+        runner.invoke(hallmark, ["init", "repo"])
+
+        with chdir("repo"):
+            Path("a0_i0.h5").write_text("a0_i0.h5\n", encoding="utf-8")
+            Path("a0_i30.h5").write_text("a0_i30.h5\n", encoding="utf-8")
+
+            result = runner.invoke(hallmark, ["add", "a{a}_i{i}.h5"])
+            assert result.exit_code == 0
+
+            Path("a0_i0.h5").unlink()
+            Path("a1_i45.h5").write_text("a1_i45.h5\n", encoding="utf-8")
+            result = runner.invoke(hallmark, ["add", "."])
+            assert result.exit_code == 0
+            manifest = Path(".hm/data.tsv").read_text(encoding="utf-8")
+            assert "a0_i0.h5" not in manifest
+            assert "\t1\t45" in manifest or ",1,45" not in manifest
+
+            Path("top1.h5").write_text("top1.h5\n", encoding="utf-8")
+            Path("top2.h5").write_text("top2.h5\n", encoding="utf-8")
+            result = runner.invoke(hallmark, ["add", "top1.h5", "top2.h5"])
+            assert result.exit_code != 0
+            assert "explicit path add is not supported" in result.output
+
+
+def test_cli_status():
+    runner = CliRunner()
+    with runner.isolated_filesystem():
+        runner.invoke(hallmark, ["init", "repo"])
+
+        with chdir("repo"):
+            Path("a0_i0.h5").write_text("a0_i0.h5\n", encoding="utf-8")
+            Path("a0_i30.h5").write_text("a0_i30.h5\n", encoding="utf-8")
+            runner.invoke(hallmark, ["add", "a{a}_i{i}.h5"])
+            runner.invoke(hallmark, ["commit", "-m", "Commit test"])
+
+            Path("a0_i0.h5").write_text("changed\n", encoding="utf-8")
+            Path("a0_i30.h5").unlink()
+            Path("untracked.h5").write_text("untracked\n", encoding="utf-8")
+
+            result = runner.invoke(hallmark, ["status"])
+            assert result.exit_code == 0
+            assert "On branch main" in result.output
+            assert "Changes not staged for commit:" in result.output
+            assert "modified:   a0_i0.h5" in result.output
+            assert "deleted:   a0_i30.h5" in result.output
+            assert "Untracked files:" in result.output
+            assert "untracked.h5" in result.output
+
+
+def test_cli_set_config_and_add_dot():
+    runner = CliRunner()
+    with runner.isolated_filesystem():
+        runner.invoke(hallmark, ["init", "repo"])
+
+        with chdir("repo"):
+            result = runner.invoke(
+                hallmark,
+                [
+                    "set-config",
+                    "--fmt", "b{a}_i{i}.h5",
+                    "--remote-name", "origin",
+                    "--remote-url", "https://example.com/path",
+                    "--encoding", r"aspin=m([0-9]+(\.[0-9]+)?|\.[0-9]+)",
+                ],
+            )
+            assert result.exit_code == 0
+            assert "Updated hallmark config." in result.output
+
+            Path("b0_i0.h5").write_text("b0_i0.h5\n", encoding="utf-8")
+            Path("b0_i30.h5").write_text("b0_i30.h5\n", encoding="utf-8")
+
+            result = runner.invoke(hallmark, ["add", "."])
+            assert result.exit_code == 0
+
+            manifest = Path(".hm/data.tsv").read_text(encoding="utf-8")
+            assert "sha1\ta\ti" in manifest
+            config = Path(".hm/config.yml").read_text(encoding="utf-8")
+            assert "fmt: b{a}_i{i}.h5" in config
+            assert "name: origin" in config
+            assert "url: https://example.com/path" in config
+            assert r"aspin: m([0-9]+(\.[0-9]+)?|\.[0-9]+)" in config
+
+
+def test_cli_set_config_rejects_malformed_encoding():
+    runner = CliRunner()
+    with runner.isolated_filesystem():
+        runner.invoke(hallmark, ["init", "repo"])
+
+        with chdir("repo"):
+            result = runner.invoke(hallmark, ["set-config", "--encoding", "aspin"])
+            assert result.exit_code != 0
+            assert "FIELD=REGEX" in result.output

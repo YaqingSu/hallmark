@@ -22,10 +22,8 @@ def _write_text_files(root: Path, files: list[str]) -> None:
     for name in files:
         (root / name).write_text("test\n", encoding="utf-8")
 
-# Write encoding into config.yml for encoded pf
-def _write_config_with_encodings(repo: Repo) -> None:
-    config = repo.dothm.load_yml("config") or {}
-    config["encodings"] = [
+def _encoded_data_spec() -> list[dict]:
+    return [
         {
             "fmt": "a{aspin}_i{i}.h5",
             "encoding": {
@@ -33,8 +31,6 @@ def _write_config_with_encodings(repo: Repo) -> None:
             },
         }
     ]
-    repo.dothm.dump_yml(config, "config")
-    repo.state.config = repo.dothm.load_yml("config")
 
 
 @pytest.fixture(scope="session")
@@ -50,7 +46,7 @@ def hallmark_test_suite_dictionary(tmp_path_factory):
     # Actually write out listed files in the temporary directory
     _write_text_files(repo_path, Standard_files)
     _write_text_files(repo_path, Encoded_files)
-    _write_config_with_encodings(repo)
+    encoded_specs = _encoded_data_spec()
 
     # Create paraframes, glob files, glob pattern and repo behavior objects
     standard_pf = ParaFrame.parse("a{a}_i{i}.h5", base_path=repo.worktree)
@@ -58,7 +54,7 @@ def hallmark_test_suite_dictionary(tmp_path_factory):
     encoded_pf = ParaFrame.parse(
         "a{aspin}_i{i}.h5",
         base_path=repo.worktree,
-        encodings=repo.state.config.get("encodings", []),
+        encodings=encoded_specs,
         encoding=True,
     )
 
@@ -71,7 +67,7 @@ def hallmark_test_suite_dictionary(tmp_path_factory):
     encoded_globbed_files, encoded_glob_pattern = ParaFrame.glob_search(
         "a{aspin}_i{i}.h5",
         base_path=repo.worktree,
-        encodings=repo.state.config.get("encodings", []),
+        encodings=encoded_specs,
         encoding=True,
         return_pattern=True,
     )
