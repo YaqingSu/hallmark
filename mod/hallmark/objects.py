@@ -4,7 +4,7 @@ from pathlib import Path
 
 
 class Objects:
-    def __init__(self, path):
+    def __init__(self, path: Path | str):
         self.root = Path(path) / "objects"
 
     def _split_checksum(self, sha1: str) -> Path:

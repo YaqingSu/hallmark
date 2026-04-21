@@ -16,7 +16,9 @@
 """Error hierarchy for Hallmark."""
 
 
-from git.exc import GitError
+from pathlib import Path
+
+from git.exc import GitError, GitCommandError
 
 
 class HallmarkError(RuntimeError):
@@ -25,3 +27,31 @@ class HallmarkError(RuntimeError):
 
 class DothmError(HallmarkError, GitError):
     """Raised for `.hm` repository validation and access failures."""
+
+
+class CloneError(HallmarkError, GitError):
+    """Raised for hallmark clone failures."""
+
+    @classmethod
+    def from_git_command(
+        cls,
+        error: GitCommandError,
+        fallback: str | None = None,
+        clone_path: Path | str | None = None,
+        display_path: Path | str | None = None,
+    ) -> "CloneError":
+        text = str(error.stderr or fallback or error).strip()
+        if "fatal:" in text:
+            text = text[text.index("fatal:"):].strip(" '")
+
+        if clone_path is not None and display_path is not None:
+            clone_path = Path(clone_path)
+            display_path = Path(display_path)
+            for candidate in (str(clone_path), str(clone_path.resolve())):
+                text = text.replace(candidate, str(display_path))
+
+        return cls(text)
+
+
+class DestinationExistsError(CloneError):
+    """Raised when clone destination already exists."""

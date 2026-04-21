@@ -17,9 +17,11 @@
 
 
 import click
-
-from click   import ClickException
+from click import ClickException
 from git.exc import GitError
+
+from .downloader import DownloadError, download_remote_data
+from .error import CloneError, DestinationExistsError
 
 from . import Repo  # from "__init__.py"
 
@@ -33,7 +35,7 @@ def hallmark(ctx):
     Hallmark is a lightweight package designed to version control and
     manage data products in a complex workflow.
     """
-    if ctx.invoked_subcommand in [None, "init"]:
+    if ctx.invoked_subcommand in [None, "init", "clone"]:
         return  # do nothing
 
     try:
@@ -193,6 +195,16 @@ def commit(repo, message):
     else:
         click.echo("No changes added to commit.")
 
+
+@hallmark.command(short_help="Show hallmark commit history.")
+@click.pass_obj
+def log(repo):
+    """Show commit history for the hallmark state repository."""
+    history = repo.log()
+    if history:
+        click.echo(history)
+
+
 @hallmark.command(short_help="Switch to another branch.")
 @click.argument("target_branch")
 @click.pass_obj
@@ -208,4 +220,74 @@ def checkout(repo, target_branch):
         if repo.checkout(target_branch):
             click.echo(f'Switched to branch "{target_branch}".')
     except (GitError, RuntimeError, ValueError, FileNotFoundError) as e:
+        raise ClickException(str(e))
+
+
+@hallmark.command(short_help="Clone a hallmark repository from a remote URL.")
+@click.argument("url")
+@click.argument("path")
+@click.option(
+    "--no-fetch-data",
+    is_flag=True,
+    help="Skip downloading remote data files after clone.")
+@click.option(
+    "--max-workers",
+    type=int,
+    default=4,
+    show_default=True,
+    help="Number of concurrent downloads.")
+def clone(url, path, no_fetch_data, max_workers):
+    """Clone a hallmark repository from URL to PATH.
+
+    By default, also downloads data files from the configured remote URL.
+    Use --no-fetch-data to skip this step.
+
+    Supports concurrent downloads for efficient retrieval of large datasets.
+    """
+    try:
+        repo = Repo.clone(url, path)
+        click.echo(f'Successfully cloned to "{path}"')
+
+        if not no_fetch_data:
+            _, worktree_path = Repo.lwpaths(path)
+            if worktree_path is None:
+                click.echo("Bare repository clone; skipping data download.")
+                return
+
+            click.echo("Downloading remote data files...")
+            results = download_remote_data(
+                repo,
+                worktree_path,
+                max_workers=max_workers,
+                show_progress=True,
+            )
+
+            if results["failed"] == 0:
+                mb_total = results["total_bytes"] / (1024 * 1024)
+                click.echo(
+                    f"Successfully downloaded {results['succeeded']} files "
+                    f"({mb_total:.1f} MB)"
+                )
+            else:
+                click.echo(
+                    "Download completed with errors: "
+                    f"{results['succeeded']} succeeded, "
+                    f"{results['failed']} failed"
+                )
+                for error in results["errors"]:
+                    click.echo(f"  - {error}", err=True)
+
+                if results["failed"] == len(results["errors"]):
+                    raise ClickException(
+                        f"Failed to download {results['failed']} file(s)"
+                    )
+
+    except DestinationExistsError as e:
+        click.echo(str(e), err=True)
+    except CloneError as e:
+        click.echo(str(e), err=True)
+        raise SystemExit(1)
+    except DownloadError as e:
+        raise ClickException(str(e))
+    except GitError as e:
         raise ClickException(str(e))

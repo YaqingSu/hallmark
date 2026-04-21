@@ -16,23 +16,24 @@
 from __future__ import annotations
 
 import os
-from contextlib  import contextmanager
+from contextlib import contextmanager
 from dataclasses import dataclass
-from typing      import Optional
-from pathlib     import Path
-from hashlib     import sha1
+from hashlib import sha1
+from pathlib import Path
+from typing import Optional
 
 from git.exc import GitCommandError
 
-from .state      import State
-from .dothm      import Dothm
-from .worktree   import Worktree
-from .paraframe  import ParaFrame
-from .objects    import Objects
+from .dothm import Dothm
+from .error import DestinationExistsError
+from .objects import Objects
+from .paraframe import ParaFrame
 from .repo_config import branch_encodings, branch_fmt, path_from_row, row_to_path, set_branch_fmt, set_config as repo_set_config
 from .repo_manifest import manifest_frame_from_pf, manifest_map
 from .repo_state import load_branch_data, load_head_state
 from .repo_worktree import effective_cwd, ensure_clean_tracked_files, filtered_paraframe, tracked_paths
+from .state import State
+from .worktree import Worktree
 
 
 @contextmanager
@@ -54,8 +55,8 @@ class Repo:
     potentially populate the ``Worktree``.
     """
 
-    state:    State
-    dothm:    Optional[Dothm]    = None
+    state: State
+    dothm: Optional[Dothm] = None
     worktree: Optional[Worktree] = None
 
     @staticmethod
@@ -67,15 +68,15 @@ class Repo:
 
     def __init__(self, path: Path | str) -> None:
         dothm_path, worktree_path = self.lwpaths(path)
-        self.dothm    = Dothm(dothm_path)
+        self.dothm = Dothm(dothm_path)
         self.worktree = worktree_path and Worktree(worktree_path)
-        self.state    = self.dothm.load()
+        self.state = self.dothm.load()
         self.paraframe_cls = ParaFrame
-        
+
         common = Path(self.dothm.common_dir).resolve().parent
         self.objects = Objects(common)
         dothm_objects = Path(dothm_path) / "objects"
-        main_objects  = common / "objects"
+        main_objects = common / "objects"
         if dothm_objects.resolve() != main_objects.resolve() and not dothm_objects.exists():
             dothm_objects.symlink_to(main_objects)
 
@@ -87,8 +88,26 @@ class Repo:
         dothm.dump_yml({}, "meta")
         dothm.dump_tsv(State().data, "data")
         dothm.index.add(["config.yml", "meta.yml", "data.tsv"])
-        Objects(dothm_path) 
+        Objects(dothm_path)
         worktree_path and Worktree.init(worktree_path)
+        return cls(path)
+
+    @classmethod
+    def clone(cls, url: str, path: Path | str) -> "Repo":
+        clone_path = Path(path)
+        if clone_path.exists():
+            raise DestinationExistsError(
+                f"fatal: destination path '{clone_path}' already exists and is not an empty directory."
+            )
+
+        dothm_path, worktree_path = cls.lwpaths(path)
+
+        Dothm.clone(url, dothm_path, display_path=path)
+
+        # Initialize worktree if non-bare
+        if worktree_path:
+            Worktree.init(worktree_path)
+
         return cls(path)
 
     @staticmethod
@@ -223,8 +242,12 @@ class Repo:
                 self.objects.store(self.worktree / path_from_row(self, row), row["sha1"])
             self.dothm.index.commit(msg)
             return True
-        else:
-            return False
+        return False
+
+    def log(self) -> str:
+        if not self.dothm.head.is_valid():
+            return ""
+        return self.dothm.git.log()
 
     def checkout(self, target_branch: str) -> bool:
         if not isinstance(target_branch, str) or not target_branch.strip():
@@ -281,7 +304,6 @@ class Repo:
         target_dothm = target / ".hm"
 
         linked_dothm = None
-
         if target_dothm.exists():
             linked_dothm = Dothm(target_dothm)
         else:

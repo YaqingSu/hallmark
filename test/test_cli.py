@@ -17,8 +17,10 @@ import os
 from pathlib        import Path
 from contextlib     import contextmanager
 from click.testing  import CliRunner
+from git import Repo as GitRepo
 
 from hallmark.cli import hallmark
+from hallmark.downloader import DownloadError
 
 
 @contextmanager
@@ -189,3 +191,99 @@ def test_cli_set_config_rejects_malformed_encoding():
             result = runner.invoke(hallmark, ["set-config", "--encoding", "aspin"])
             assert result.exit_code != 0
             assert "FIELD=REGEX" in result.output
+
+
+def test_cli_log():
+    runner = CliRunner()
+    with runner.isolated_filesystem():
+        runner.invoke(hallmark, ["init", "repo"])
+
+        with chdir("repo"):
+            result = runner.invoke(hallmark, ["log"])
+            assert result.exit_code == 0
+            expected = GitRepo(".hm").git.log()
+            assert result.output.strip() == expected.strip()
+
+            Path("a0_i0.h5").write_text("a0_i0.h5\n", encoding="utf-8")
+            runner.invoke(hallmark, ["add", "a{a}_i{i}.h5"])
+            runner.invoke(hallmark, ["commit", "-m", "add first file"])
+
+            Path("a0_i30.h5").write_text("a0_i30.h5\n", encoding="utf-8")
+            runner.invoke(hallmark, ["add", "."])
+            runner.invoke(hallmark, ["commit", "-m", "add second file"])
+
+            result = runner.invoke(hallmark, ["log"])
+            assert result.exit_code == 0
+            expected = GitRepo(".hm").git.log()
+            assert result.output.strip() == expected.strip()
+
+
+def test_clone_existing_destination_reports_plain_git_stderr():
+    runner = CliRunner()
+    with runner.isolated_filesystem():
+        source = Path("source")
+        result = runner.invoke(hallmark, ["init", str(source)])
+        assert result.exit_code == 0
+
+        target = Path("repo3")
+        target.mkdir(parents=True)
+        (target / "placeholder.txt").write_text("test\n", encoding="utf-8")
+
+        result = runner.invoke(
+            hallmark,
+            ["clone", "--no-fetch-data", str(source / ".hm"), str(target)],
+        )
+
+        assert result.exit_code == 0
+        assert not result.output.startswith("Error:")
+        assert "stderr:" not in result.output
+        assert "Clone failed:" not in result.output
+        assert (
+            result.output.strip()
+            == "fatal: destination path 'repo3' already exists and is not an empty directory."
+        )
+
+
+def test_clone_copies_committed_hallmark_state():
+    runner = CliRunner()
+    with runner.isolated_filesystem():
+        source = Path("source")
+        result = runner.invoke(hallmark, ["init", str(source)])
+        assert result.exit_code == 0
+
+        GitRepo(str(source / ".hm")).index.commit("commit initial hallmark state")
+
+        result = runner.invoke(
+            hallmark,
+            ["clone", "--no-fetch-data", str(source / ".hm"), "target"],
+        )
+
+        assert result.exit_code == 0
+        assert 'Successfully cloned to "target"' in result.output
+        assert Path("target/.hm").is_dir()
+        assert Path("target/.hm/config.yml").exists()
+        assert Path("target/.hm/meta.yml").exists()
+        assert Path("target/.hm/data.tsv").exists()
+
+
+def test_clone_reports_download_error_cleanly(monkeypatch):
+    runner = CliRunner()
+    with runner.isolated_filesystem():
+        source = Path("source")
+        result = runner.invoke(hallmark, ["init", str(source)])
+        assert result.exit_code == 0
+
+        GitRepo(str(source / ".hm")).index.commit("commit initial hallmark state")
+
+        def boom(*args, **kwargs):
+            raise DownloadError("Remote URL not configured in config.yml")
+
+        monkeypatch.setattr("hallmark.cli.download_remote_data", boom)
+
+        result = runner.invoke(
+            hallmark,
+            ["clone", str(source / ".hm"), "target"],
+        )
+
+        assert result.exit_code != 0
+        assert "Remote URL not configured in config.yml" in result.output

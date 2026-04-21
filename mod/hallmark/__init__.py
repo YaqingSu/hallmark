@@ -12,12 +12,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-
-
 """Hallmark python public API"""
 
 
 from .repo import Repo
-from .paraframe import ParaFrame as ParaFrame
+from .paraframe import ParaFrame
 
 __all__ = ["Repo"]

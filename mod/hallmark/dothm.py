@@ -18,12 +18,12 @@ from __future__ import annotations
 from pathlib   import Path
 from functools import cached_property
 
-from git import Repo
+from git import GitCommandError, Repo
 import pandas as pd
 import yaml
 
 from .state import State
-from .error import DothmError
+from .error import CloneError, DothmError
 
 
 class Dothm(Repo):
@@ -77,17 +77,44 @@ remote:
   # url: https://example.com/path/to/data/
 """
 
-    def link(self, path: Path | str, branch: str | None = None):
-        from git.exc import GitCommandError
+    @classmethod
+    def clone(
+        cls,
+        url: str,
+        to_path: Path | str,
+        display_path: Path | str | None = None,
+    ) -> "Dothm":
+        to_path = Path(to_path)
 
-        cmd  = self.git              # has its own working directory
+        try:
+            super().clone_from(url, str(to_path))
+            dothm = cls(str(to_path))
+
+            required_files = ["config.yml", "meta.yml", "data.tsv"]
+            for file in required_files:
+                if not (dothm.path / file).exists():
+                    raise CloneError(
+                        f'Cloned repository missing required file: {file}'
+                    )
+            return dothm
+        except GitCommandError as e:
+            raise CloneError.from_git_command(
+                e,
+                fallback=f'Failed to clone from "{url}"',
+                clone_path=to_path,
+                display_path=display_path,
+            ) from e
+        except CloneError:
+            raise
+
+    def link(self, path: Path | str, branch: str | None = None):
+        cmd = self.git  # has its own working directory
         path = Path(path).resolve()  # use absolute path
         try:
             cmd.worktree("add", path, branch)
         except GitCommandError as e:
             raise DothmError(f'Failed to link "{path}": {e}')
-        else:
-            return Dothm(path)
+        return Dothm(path)
 
     def load(self) -> State:
         return State(
