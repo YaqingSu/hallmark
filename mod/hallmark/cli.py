@@ -17,9 +17,11 @@
 
 
 import click
-
-from click   import ClickException
+from click import ClickException
 from git.exc import GitError
+
+from .downloader import DownloadError, download_remote_data
+from .error import CloneError, DestinationExistsError
 
 from . import Repo  # from "__init__.py"
 
@@ -33,7 +35,7 @@ def hallmark(ctx):
     Hallmark is a lightweight package designed to version control and
     manage data products in a complex workflow.
     """
-    if ctx.invoked_subcommand in [None, "init"]:
+    if ctx.invoked_subcommand in [None, "init", "clone"]:
         return  # do nothing
 
     try:
@@ -70,25 +72,114 @@ def info(repo):
     click.echo(f'hallmark worktree: "{repo.worktree}"')
 
 
-@hallmark.command(short_help="Add files to hallmark index using a Python f-string.")
-@click.argument("fstring")
+@hallmark.command(short_help="Show worktree and staged hallmark state.")
 @click.pass_obj
-def add(repo, fstring):
-    """Add files discovered via a Python format string to the hallmark index.
+def status(repo):
+    """Show hallmark status for the current branch and worktree."""
+    snapshot = repo.status()
 
-    This is analogous to `git add FILE`, which adds file contents to
-    the "index" (also known as the "staging area").
-    Instead of specifying file names directly, this function uses a
-    Python format string (i.e., an f-string) to discover and add
-    matching files to the hallmark index.
+    click.echo(f'On branch {snapshot["branch"]}')
+
+    staged = snapshot["staged"]
+    worktree = snapshot["worktree"]
+    untracked = snapshot["untracked"]
+
+    def emit_section(title, entries, fg):
+        if not entries:
+            return
+        click.echo("")
+        click.secho(title, fg=fg)
+        for label, paths in entries:
+            for path in paths:
+                click.echo("  " + click.style(f"{label}:   {path}", fg=fg))
+
+    emit_section(
+        "Changes to be committed:",
+        [
+            ("new file", staged["added"]),
+            ("modified", staged["modified"]),
+            ("deleted", staged["deleted"]),
+        ],
+        "green",
+    )
+    emit_section(
+        "Changes not staged for commit:",
+        [
+            ("modified", worktree["modified"]),
+            ("deleted", worktree["deleted"]),
+        ],
+        "red",
+    )
+    if untracked:
+        click.echo("")
+        click.secho("Untracked files:", fg="red")
+        for path in untracked:
+            click.echo("  " + click.style(path, fg="red"))
+
+    if not any([staged["added"], staged["modified"], staged["deleted"],
+                worktree["modified"], worktree["deleted"], untracked]):
+        click.echo("")
+        click.echo("nothing to commit, working tree clean")
+
+
+@hallmark.command(short_help="Add files to hallmark index.")
+@click.argument("inputs", nargs=-1, required=True)
+@click.pass_obj
+def add(repo, inputs):
+    """Add files to the hallmark index.
+
+    `hallmark add FORMAT` uses the branch format string workflow.
+    `hallmark add "."` rebuilds the manifest from current files that match
+    the branch `fmt` in `config.yml`.
+    Explicit path inputs such as shell-expanded `*` are not supported yet
+    with the parameter-based manifest format.
     """
-    pf = repo.add(fstring)
+    try:
+        if len(inputs) == 1:
+            pf = repo.add(inputs[0])
+        else:
+            pf = repo.add_paths(list(inputs))
+    except (RuntimeError, ValueError, FileNotFoundError) as e:
+        raise ClickException(str(e))
 
     if pf.empty:
         click.echo("No files matched the format string.")
     else:
         click.echo("Changes to be committed")
         click.echo(pf.path.to_string(index=False, header=False))
+
+
+@hallmark.command("set-config", short_help="Update hallmark branch config.")
+@click.option("--fmt")
+@click.option("--remote-name")
+@click.option("--remote-url")
+@click.option("--encoding", "encodings", multiple=True)
+@click.pass_obj
+def set_config(repo, fmt, remote_name, remote_url, encodings):
+    """Update the current branch config.yml."""
+    if not any([fmt, remote_name, remote_url, encodings]):
+        raise ClickException("No config changes requested.")
+
+    encoding_updates = {}
+    for item in encodings:
+        if "=" not in item:
+            raise ClickException('encoding values must use FIELD=REGEX')
+        field, regex = item.split("=", 1)
+        if not field:
+            raise ClickException('encoding values must use FIELD=REGEX')
+        encoding_updates[field] = regex
+
+    try:
+        repo.set_config(
+            fmt=fmt,
+            remote_name=remote_name,
+            remote_url=remote_url,
+            encoding_updates=encoding_updates or None,
+        )
+    except (RuntimeError, ValueError, FileNotFoundError) as e:
+        raise ClickException(str(e))
+
+    click.echo("Updated hallmark config.")
 
 
 @hallmark.command(short_help="Commit changes to the repository.")
@@ -103,3 +194,100 @@ def commit(repo, message):
         click.echo("Committed staged state changes.")
     else:
         click.echo("No changes added to commit.")
+
+
+@hallmark.command(short_help="Show hallmark commit history.")
+@click.pass_obj
+def log(repo):
+    """Show commit history for the hallmark state repository."""
+    history = repo.log()
+    if history:
+        click.echo(history)
+
+
+@hallmark.command(short_help="Switch to another branch.")
+@click.argument("target_branch")
+@click.pass_obj
+def checkout(repo, target_branch):
+    """Switch branches and rewrite tracked files from branch state.
+
+    This is analogous to `git checkout BRANCH`.
+    If the branch does not exist, it is created from the current branch.
+    Only hallmark-tracked files are rewritten; unrelated files are left
+    alone unless they block restoration of a tracked path.
+    """
+    try:
+        if repo.checkout(target_branch):
+            click.echo(f'Switched to branch "{target_branch}".')
+    except (GitError, RuntimeError, ValueError, FileNotFoundError) as e:
+        raise ClickException(str(e))
+
+
+@hallmark.command(short_help="Clone a hallmark repository from a remote URL.")
+@click.argument("url")
+@click.argument("path")
+@click.option(
+    "--no-fetch-data",
+    is_flag=True,
+    help="Skip downloading remote data files after clone.")
+@click.option(
+    "--max-workers",
+    type=int,
+    default=4,
+    show_default=True,
+    help="Number of concurrent downloads.")
+def clone(url, path, no_fetch_data, max_workers):
+    """Clone a hallmark repository from URL to PATH.
+
+    By default, also downloads data files from the configured remote URL.
+    Use --no-fetch-data to skip this step.
+
+    Supports concurrent downloads for efficient retrieval of large datasets.
+    """
+    try:
+        repo = Repo.clone(url, path)
+        click.echo(f'Successfully cloned to "{path}"')
+
+        if not no_fetch_data:
+            _, worktree_path = Repo.lwpaths(path)
+            if worktree_path is None:
+                click.echo("Bare repository clone; skipping data download.")
+                return
+
+            click.echo("Downloading remote data files...")
+            results = download_remote_data(
+                repo,
+                worktree_path,
+                max_workers=max_workers,
+                show_progress=True,
+            )
+
+            if results["failed"] == 0:
+                mb_total = results["total_bytes"] / (1024 * 1024)
+                click.echo(
+                    f"Successfully downloaded {results['succeeded']} files "
+                    f"({mb_total:.1f} MB)"
+                )
+            else:
+                click.echo(
+                    "Download completed with errors: "
+                    f"{results['succeeded']} succeeded, "
+                    f"{results['failed']} failed"
+                )
+                for error in results["errors"]:
+                    click.echo(f"  - {error}", err=True)
+
+                if results["failed"] == len(results["errors"]):
+                    raise ClickException(
+                        f"Failed to download {results['failed']} file(s)"
+                    )
+
+    except DestinationExistsError as e:
+        click.echo(str(e), err=True)
+    except CloneError as e:
+        click.echo(str(e), err=True)
+        raise SystemExit(1)
+    except DownloadError as e:
+        raise ClickException(str(e))
+    except GitError as e:
+        raise ClickException(str(e))

@@ -1,4 +1,7 @@
+from pathlib import Path
+
 import pandas as pd
+import pytest
 
 from hallmark import Repo
 from hallmark import ParaFrame
@@ -135,3 +138,275 @@ def test_data_tsv_and_worktree_reconstruction(hallmark_test_suite_dictionary):
     repo = Repo(hallmark_test_suite_dictionary["repo_path"])
     assert len(repo.state.data) == 12
     assert repo.worktree.stem == "repo"
+
+
+def _write_files(root, names):
+    for name in names:
+        (root / name).write_text(f"{name}\n", encoding="utf-8")
+
+
+def test_repo_add_persists_only_sha1_and_path(tmp_path):
+    repo = Repo.init(tmp_path / "repo")
+    _write_files(repo.worktree, ["a0_i0.h5", "a0_i30.h5"])
+
+    result = repo.add("a{a}_i{i}.h5")
+
+    assert list(result.columns) == ["path", "a", "i"]
+    persisted = repo.dothm.load_tsv("data")
+    assert repo.state.config["data"] == [{"fmt": "a{a}_i{i}.h5", "encoding": None}]
+    assert list(persisted.columns) == ["sha1", "a", "i"]
+    assert persisted.to_dict(orient="records") == [
+        {"sha1": Repo.checksum(repo.worktree / "a0_i0.h5"), "a": "0", "i": "0"},
+        {"sha1": Repo.checksum(repo.worktree / "a0_i30.h5"), "a": "0", "i": "30"},
+    ]
+
+
+def test_repo_add_dot_replaces_manifest_with_current_tree(tmp_path):
+    repo = Repo.init(tmp_path / "repo")
+    _write_files(repo.worktree, ["a0_i0.h5", "a0_i30.h5"])
+    repo.add("a{a}_i{i}.h5")
+    (repo.worktree / "a1_i45.h5").write_text("a1_i45.h5\n", encoding="utf-8")
+
+    result = repo.add(".")
+
+    assert sorted(result["path"]) == ["a0_i0.h5", "a0_i30.h5", "a1_i45.h5"]
+    persisted = repo.dothm.load_tsv("data")
+    assert persisted.to_dict(orient="records") == [
+        {"sha1": Repo.checksum(repo.worktree / "a0_i0.h5"), "a": "0", "i": "0"},
+        {"sha1": Repo.checksum(repo.worktree / "a0_i30.h5"), "a": "0", "i": "30"},
+        {"sha1": Repo.checksum(repo.worktree / "a1_i45.h5"), "a": "1", "i": "45"},
+    ]
+
+
+def test_repo_add_dot_removes_deleted_files_from_manifest(tmp_path):
+    repo = Repo.init(tmp_path / "repo")
+    _write_files(repo.worktree, ["a0_i0.h5", "a0_i30.h5"])
+    repo.add("a{a}_i{i}.h5")
+
+    (repo.worktree / "a0_i0.h5").unlink()
+    repo.add(".")
+
+    assert repo.state.data.to_dict(orient="records") == [
+        {"sha1": Repo.checksum(repo.worktree / "a0_i30.h5"), "a": "0", "i": "30"}
+    ]
+
+
+def test_repo_add_pattern_keeps_deleted_manifest_rows(tmp_path):
+    repo = Repo.init(tmp_path / "repo")
+    _write_files(repo.worktree, ["a0_i0.h5", "a0_i30.h5"])
+    repo.add("a{a}_i{i}.h5")
+    original_sha = repo.state.data.loc[
+        (repo.state.data["a"] == "0") & (repo.state.data["i"] == "0"),
+        "sha1",
+    ].iloc[0]
+
+    (repo.worktree / "a0_i0.h5").unlink()
+    repo.add("a{a}_i{i}.h5")
+
+    assert repo.state.data.to_dict(orient="records") == [
+        {"sha1": original_sha, "a": "0", "i": "0"},
+        {"sha1": Repo.checksum(repo.worktree / "a0_i30.h5"), "a": "0", "i": "30"},
+    ]
+
+
+def test_repo_add_paths_is_not_supported_yet(tmp_path):
+    repo = Repo.init(tmp_path / "repo")
+    _write_files(repo.worktree, ["a0_i0.h5", "a0_i30.h5", "b0_i45.h5"])
+    repo.add("a{a}_i{i}.h5")
+
+    with pytest.raises(RuntimeError, match="explicit path add is not supported"):
+        repo.add_paths(["b0_i45.h5"])
+
+
+def test_repo_add_preserves_config_order_and_remote_key(tmp_path):
+    repo = Repo.init(tmp_path / "repo")
+    _write_files(repo.worktree, ["a0_i0.h5"])
+
+    repo.add("a{a}_i{i}.h5")
+
+    config_text = (repo.dothm.path / "config.yml").read_text(encoding="utf-8")
+    assert "data:\n- fmt: a{a}_i{i}.h5\n  encoding: null\n" in config_text
+    assert "remote: null\n" in config_text
+
+
+def test_repo_set_config_updates_only_requested_fields(tmp_path):
+    repo = Repo.init(tmp_path / "repo")
+
+    repo.set_config(fmt="b{a}_i{i}.h5", remote_name="origin")
+
+    assert repo.state.config == {
+        "data": [{"fmt": "b{a}_i{i}.h5", "encoding": None}],
+        "remote": {"name": "origin"},
+    }
+
+
+def test_repo_set_config_preserves_encoding_and_updates_remote(tmp_path):
+    repo = Repo.init(tmp_path / "repo")
+    repo.state.config = {
+        "data": [
+            {
+                "fmt": "{mag:d}a{aspin}_w{win:d}.h5",
+                "encoding": {
+                    "aspin": r"m([0-9]+(\.[0-9]+)?|\.[0-9]+)"
+                },
+            }
+        ],
+        "remote": {"name": "origin"},
+    }
+    repo.dothm.dump(repo.state)
+
+    repo.set_config(fmt="b{a}_i{i}.h5", remote_url="https://example.com/path")
+
+    assert repo.state.config == {
+        "data": [
+            {
+                "fmt": "b{a}_i{i}.h5",
+                "encoding": {
+                    "aspin": r"m([0-9]+(\.[0-9]+)?|\.[0-9]+)"
+                },
+            }
+        ],
+        "remote": {"name": "origin", "url": "https://example.com/path"},
+    }
+
+
+def test_repo_set_config_creates_or_updates_encoding_map(tmp_path):
+    repo = Repo.init(tmp_path / "repo")
+
+    repo.set_config(encoding_updates={"aspin": r"m([0-9]+(\.[0-9]+)?|\.[0-9]+)"})
+
+    assert repo.state.config == {
+        "data": [
+            {
+                "encoding": {
+                    "aspin": r"m([0-9]+(\.[0-9]+)?|\.[0-9]+)"
+                },
+            }
+        ],
+        "remote": None,
+    }
+
+
+def test_repo_status_reports_staged_worktree_and_untracked_changes(tmp_path):
+    repo = Repo.init(tmp_path / "repo")
+    _write_files(repo.worktree, ["a0_i0.h5", "a0_i30.h5"])
+    repo.add("a{a}_i{i}.h5")
+    repo.commit("main data")
+
+    (repo.worktree / "a0_i0.h5").write_text("changed\n", encoding="utf-8")
+    (repo.worktree / "a0_i30.h5").unlink()
+    (repo.worktree / "extra.h5").write_text("extra\n", encoding="utf-8")
+
+    snapshot = repo.status()
+
+    assert snapshot["branch"] == "main"
+    assert snapshot["staged"] == {"added": [], "modified": [], "deleted": []}
+    assert snapshot["worktree"]["modified"] == ["a0_i0.h5"]
+    assert snapshot["worktree"]["deleted"] == ["a0_i30.h5"]
+    assert snapshot["untracked"] == ["extra.h5"]
+
+
+def test_repo_status_reports_staged_manifest_changes(tmp_path):
+    repo = Repo.init(tmp_path / "repo")
+    _write_files(repo.worktree, ["a0_i0.h5", "a0_i30.h5"])
+    repo.add("a{a}_i{i}.h5")
+    repo.commit("main data")
+
+    (repo.worktree / "a1_i45.h5").write_text("a1_i45.h5\n", encoding="utf-8")
+    repo.add(".")
+
+    snapshot = repo.status()
+
+    assert snapshot["staged"]["added"] == ["a1_i45.h5"]
+    assert snapshot["staged"]["modified"] == []
+    assert snapshot["staged"]["deleted"] == []
+
+
+def test_checkout_rewrites_tracked_files_and_shares_objects(tmp_path):
+    repo = Repo.init(tmp_path / "repo")
+    _write_files(repo.worktree, ["a0_i0.h5", "a0_i30.h5"])
+    repo.add("a{a}_i{i}.h5")
+    repo.commit("main data")
+
+    main_objects = sorted(p.relative_to(repo.dothm.path) 
+            for p in (repo.dothm.path / "objects").rglob("*") if p.is_file())
+    assert len(main_objects) == 2
+
+    repo.checkout("experiment")
+    (repo.worktree / "a0_i0.h5").unlink()
+    (repo.worktree / "a0_i30.h5").unlink()
+    _write_files(repo.worktree, ["a1_i45.h5", "a1_i90.h5"])
+    repo.add(".")
+    repo.commit("experiment data")
+
+    experiment_files = sorted(path.name 
+                for path in Path(str(repo.worktree)).glob("*.h5"))
+    assert experiment_files == ["a1_i45.h5", "a1_i90.h5"]
+
+    repo.checkout("main")
+    main_files = sorted(path.name 
+                for path in Path(str(repo.worktree)).glob("*.h5"))
+    assert main_files == ["a0_i0.h5", "a0_i30.h5"]
+
+    objects_after = [p for p in (repo.dothm.path / 
+                            "objects").rglob("*") if p.is_file()]
+    assert len(objects_after) == 4
+
+    repo.checkout("experiment")
+    roundtrip_files = sorted(path.name 
+                            for path in Path(str(repo.worktree)).glob("*.h5"))
+    assert roundtrip_files == ["a1_i45.h5", "a1_i90.h5"]
+
+
+def test_checkout_leaves_untracked_files(tmp_path):
+    repo = Repo.init(tmp_path / "repo")
+    _write_files(repo.worktree, ["a0_i0.h5"])
+    repo.add("a{a}_i{i}.h5")
+    repo.commit("main data")
+
+    repo.checkout("experiment")
+    (repo.worktree / "a0_i0.h5").unlink()
+    _write_files(repo.worktree, ["a1_i45.h5"])
+    repo.add(".")
+    repo.commit("experiment data")
+    (repo.worktree / "notes.txt").write_text("keep me\n", encoding="utf-8")
+
+    repo.checkout("main")
+
+    assert (repo.worktree / "notes.txt").read_text(encoding="utf-8") == "keep me\n"
+    assert sorted(path.name 
+            for path in Path(str(repo.worktree)).glob("*.h5")) == ["a0_i0.h5"]
+
+
+def test_checkout_aborts_on_dirty_tracked_file(tmp_path):
+    repo = Repo.init(tmp_path / "repo")
+    _write_files(repo.worktree, ["a0_i0.h5"])
+    repo.add("a{a}_i{i}.h5")
+    repo.commit("main data")
+    repo.checkout("experiment")
+    repo.checkout("main")
+    (repo.worktree / "a0_i0.h5").write_text("changed\n", encoding="utf-8")
+
+    with pytest.raises(RuntimeError, 
+                match='tracked file "a0_i0.h5" has uncommitted changes'):
+        repo.checkout("experiment")
+
+
+def test_checkout_aborts_on_untracked_path_conflict(tmp_path):
+    repo = Repo.init(tmp_path / "repo")
+    _write_files(repo.worktree, ["a0_i0.h5"])
+    repo.add("a{a}_i{i}.h5")
+    repo.commit("main data")
+
+    repo.checkout("experiment")
+    (repo.worktree / "a0_i0.h5").unlink()
+    _write_files(repo.worktree, ["a1_i45.h5"])
+    repo.add(".")
+    repo.commit("experiment data")
+    repo.checkout("main")
+
+    (repo.worktree / "a1_i45.h5").write_text("untracked blocker\n", encoding="utf-8")
+
+    with pytest.raises(RuntimeError, 
+        match='target tracked path "a1_i45.h5" already exists as an untracked file'):
+        repo.checkout("experiment")

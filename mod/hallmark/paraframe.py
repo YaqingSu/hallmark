@@ -23,6 +23,7 @@ import numpy as np
 
 from .helper_functions import find_spec_by_fmt, regex_sub
 
+
 class ParaFrame(pd.DataFrame):
     """
     A subclass of :class:`pandas.DataFrame` with added methods for
@@ -44,7 +45,7 @@ class ParaFrame(pd.DataFrame):
 
     _metadata = ["encodings", "base_path"]
 
-    def __init__(self, data=None, encodings=None, base_path = None, **kwargs):
+    def __init__(self, data=None, encodings=None, base_path=None, **kwargs):
         super().__init__(data, **kwargs)
         self.encodings = encodings or {}
         self.base_path = Path(base_path) if base_path is not None else Path.cwd()
@@ -56,7 +57,7 @@ class ParaFrame(pd.DataFrame):
             kwargs.setdefault("base_path", self.base_path)
             return ParaFrame(*args, **kwargs)
         return _c
-    
+
     def __call__(self, **kwds):
         return self.filter(**kwds)
 
@@ -81,19 +82,26 @@ class ParaFrame(pd.DataFrame):
          pandas.DataFrame: A filtered DataFrame containing only rows
              that match the given conditions.
         """
-        mask = np.zeros(len(self), dtype = bool)
+        mask = np.zeros(len(self), dtype=bool)
         for k, v in kwargs.items():
-            if isinstance(v, (tuple, list)): # looking through the specified conditions
+            if isinstance(v, (tuple, list)):  # looking through the specified conditions
                 mask |= np.isin(np.array(self[k]), np.array(v))
             else:
                 mask |= np.array(self[k]) == v
         return self[mask]
 
     @classmethod
-    def glob_search(cls, fmt, *args, 
-                encodings=None, base_path=None, 
-                debug=False, return_pattern=False,
-                encoding=False, **kwargs):
+    def glob_search(
+        cls,
+        fmt,
+        *args,
+        encodings=None,
+        base_path=None,
+        debug=False,
+        return_pattern=False,
+        encoding=False,
+        **kwargs,
+    ):
         """
         Find all the files specified in a directory using the format string specified.
 
@@ -128,8 +136,8 @@ class ParaFrame(pd.DataFrame):
          Else, it returns the globbed files, the format string with the wildcards
          and the user specification in the .yaml file (None, if encoding = False).
         """
-        encodings  = encodings  or {}
-        base_path  = Path(base_path) if base_path is not None else Path.cwd()
+        encodings = encodings or {}
+        base_path = Path(base_path) if base_path is not None else Path.cwd()
 
         pmax = len(fmt) // 3  # to specify a parameter, we need at least
         # three characters '{p}'; the maximum number
@@ -146,14 +154,14 @@ class ParaFrame(pd.DataFrame):
                     break
 
             yaml_encodings = find_spec_by_fmt(fmt_enc, encodings)
-            
+
             # Conditionals checking .yaml file and user specifications are consistent.
             if yaml_encodings is None:
                 raise ValueError(
                     f"Error: The format '{fmt_enc}' is missing from hallmark.yml."
                 )
 
-            enc_dict       = yaml_encodings.get("encoding", {})
+            enc_dict = yaml_encodings.get("encoding", {})
             needs_encoding = any(v != "" for v in enc_dict.values())
             if not needs_encoding and encoding:
                 raise ValueError(
@@ -161,11 +169,11 @@ class ParaFrame(pd.DataFrame):
                 )
         else:
             yaml_encodings = {}
-        
+
         if needs_encoding is not None and not encoding:
-                raise ValueError(
-                    f"'{fmt_enc}' has a regex spec; use encoding=True."
-                )
+            raise ValueError(
+                f"'{fmt_enc}' has a regex spec; use encoding=True."
+            )
 
         # pattern = base + fmt
         pattern = str(base_path / fmt.lstrip("/"))
@@ -178,9 +186,9 @@ class ParaFrame(pd.DataFrame):
                 pattern = pattern.format(*args, **kwargs)
                 break
             except KeyError as e:
-                k         = e.args[0]
-                pattern   = re.sub(r"\{" + k + r":?.*?\}", "{" + k + ":s}", pattern)
-                fmt_g     = re.sub(r"\{" + k + r":?.*?\}", "{" + k + ":g}", fmt_g)
+                k = e.args[0]
+                pattern = re.sub(r"\{" + k + r":?.*?\}", "{" + k + ":s}", pattern)
+                fmt_g = re.sub(r"\{" + k + r":?.*?\}", "{" + k + ":g}", fmt_g)
                 kwargs[k] = "*"
 
         # Obtain list of files based on the glob pattern
@@ -203,12 +211,18 @@ class ParaFrame(pd.DataFrame):
             return (yaml_encodings, fmt_g, globbed_files)
 
     @classmethod
-    def parse(cls, fmt, *args, 
-              encodings=None, base_path=None, 
-              debug=False, encoding=False, **kwargs):
-        
+    def parse(
+        cls,
+        fmt,
+        *args,
+        encodings=None,
+        base_path=None,
+        debug=False,
+        encoding=False,
+        **kwargs,
+    ):
         """Build a ``ParaFrame`` by parsing file paths that match a pattern.
- 
+
         Args:
             fmt (str):        Format string with ``{param}`` fields.
             encodings (dict): The ``encodings`` dict from ``State``
@@ -218,11 +232,11 @@ class ParaFrame(pd.DataFrame):
                               Defaults to ``Path.cwd()``.
             debug (bool):     Print debug info. Defaults to ``False``.
             encoding (bool):  Apply regex encoding. Defaults to ``False``.
- 
+
         Returns:
             ``ParaFrame`` where each row is a matched file with parsed
             parameters as columns, plus a ``path`` column.
- 
+
         Example:
             >>> from hallmark import ParaFrame
             >>> pf = ParaFrame.parse(
@@ -233,14 +247,14 @@ class ParaFrame(pd.DataFrame):
         base_path = Path(base_path) if base_path is not None else Path.cwd()
 
         yaml_encodings, fmt_g, globbed_files = cls.glob_search(
-            fmt, *args, 
+            fmt, *args,
             encodings=encodings,
             base_path=base_path,
-            debug=debug, 
+            debug=debug,
             encoding=encoding,
-            **kwargs
-            )
-        
+            **kwargs,
+        )
+
         parser = parse.compile(fmt_g)
         frame = []
 
@@ -257,5 +271,5 @@ class ParaFrame(pd.DataFrame):
             if r is None:
                 print(f'Failed to parse "{f}"')
             else:
-                frame.append({'path': f_short, **r.named})
-        return cls(frame, encodings= encodings, base_path=base_path)
+                frame.append({"path": f_short, **r.named})
+        return cls(frame, encodings=encodings, base_path=base_path)

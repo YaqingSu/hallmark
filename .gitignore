@@ -4,6 +4,8 @@
 !*.*py
 !*.*ml
 !*file
+!demo/demo_cli.ipynb
+!demo/demo_python.ipynb
 
 __pycache__/
 *.egg-info/

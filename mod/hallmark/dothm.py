@@ -17,13 +17,14 @@ from __future__ import annotations
 
 from pathlib   import Path
 from functools import cached_property
+from typing import Optional, Union
 
-from git import Repo
+from git import GitCommandError, Repo
 import pandas as pd
 import yaml
 
 from .state import State
-from .error import DothmError
+from .error import CloneError, DothmError
 
 
 class Dothm(Repo):
@@ -47,6 +48,7 @@ class Dothm(Repo):
     def init(cls, *args, **kwargs) -> "Dothm":
         if kwargs.get('bare', False):
             raise DothmError('A ".hm" directory must not be a bare git repository')
+        kwargs.setdefault("initial_branch", "main")
 
         dothm = super().init(*args, **kwargs)
         readme_path = dothm.path / "README.md"
@@ -57,21 +59,63 @@ This is a dot-hallmark repository.
 It is a git-version-controlled dataset index used by `hallmark`.
 See https://l6a.github.io/hallmark/ for `hallmark` usage.
 """)
-        dothm.index.add([readme_path])
-        dothm.index.commit("Initial commit: local `.hm` repository")
+        if not dothm.heads:
+            dothm.index.add([readme_path])
+            dothm.index.commit("Initial commit: local `.hm` repository")
         return dothm
 
-    def link(self, path: Path | str, branch: str | None = None):
-        from git.exc import GitCommandError
+    @staticmethod
+    def config_template() -> str:
+        return """# Edit this file only if your branch needs regex substitutions.
+# For simple names, you can just run: hallmark add "a{a}_i{i}.h5"
+data:
+  -
+    # fmt: "{release}_{source}_{year}_{doy:03d}_{band}.uvfits"
+    encoding:
+      # aspin: m([0-9]+(\\.[0-9]+)?|\\.[0-9]+)
+remote:
+  # name: origin
+  # url: https://example.com/path/to/data/
+"""
 
-        cmd  = self.git              # has its own working directory
+    @classmethod
+    def clone(
+        cls,
+        url: str,
+        to_path: Union[Path, str],
+        display_path: Optional[Union[Path, str]] = None,
+    ) -> "Dothm":
+        to_path = Path(to_path)
+
+        try:
+            super().clone_from(url, str(to_path))
+            dothm = cls(str(to_path))
+
+            required_files = ["config.yml", "meta.yml", "data.tsv"]
+            for file in required_files:
+                if not (dothm.path / file).exists():
+                    raise CloneError(
+                        f'Cloned repository missing required file: {file}'
+                    )
+            return dothm
+        except GitCommandError as e:
+            raise CloneError.from_git_command(
+                e,
+                fallback=f'Failed to clone from "{url}"',
+                clone_path=to_path,
+                display_path=display_path,
+            ) from e
+        except CloneError:
+            raise
+
+    def link(self, path: Union[Path, str], branch: Optional[str] = None):
+        cmd = self.git  # has its own working directory
         path = Path(path).resolve()  # use absolute path
         try:
             cmd.worktree("add", path, branch)
         except GitCommandError as e:
             raise DothmError(f'Failed to link "{path}": {e}')
-        else:
-            return Dothm(path)
+        return Dothm(path)
 
     def load(self) -> State:
         return State(
@@ -86,16 +130,16 @@ See https://l6a.github.io/hallmark/ for `hallmark` usage.
         self.dump_tsv(state.data,   "data")
         self.index.add(["config.yml", "meta.yml", "data.tsv"])
 
-    def load_yml(self, stem: Path | str) -> dict:
+    def load_yml(self, stem: Union[Path, str]) -> dict:
         with open((self.path/stem).with_suffix(".yml"), "r") as f:
             return yaml.safe_load(f)
 
-    def dump_yml(self, data: dict, stem: Path | str) -> None:
+    def dump_yml(self, data: dict, stem: Union[Path, str]) -> None:
         with open((self.path/stem).with_suffix(".yml"), "w") as f:
             yaml.dump(data, f, sort_keys=False)
 
-    def load_tsv(self, stem: Path | str) -> pd.DataFrame:
-        return pd.read_csv((self.path/stem).with_suffix(".tsv"), sep="\t")
+    def load_tsv(self, stem: Union[Path, str]) -> pd.DataFrame:
+        return pd.read_csv((self.path/stem).with_suffix(".tsv"), sep="\t", dtype=str)
 
-    def dump_tsv(self, data: pd.DataFrame, stem: Path | str) -> None:
+    def dump_tsv(self, data: pd.DataFrame, stem: Union[Path, str]) -> None:
         data.to_csv((self.path/stem).with_suffix(".tsv"), sep="\t", index=False)

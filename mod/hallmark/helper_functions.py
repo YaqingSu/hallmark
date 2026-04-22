@@ -14,6 +14,7 @@
 
 import re
 
+
 def find_spec_by_fmt(fmt, encodings):
     """Find the encoding spec for a given format string.
 
@@ -31,34 +32,30 @@ def find_spec_by_fmt(fmt, encodings):
     return None
 
 
-def regex_sub(f, yaml_encodings):
+def regex_sub(value, yaml_encodings):
     """Apply regex substitution defined in an encoding spec.
 
     Args:
-        f:              Format string / file path to transform.
+        value:          Format string / file path to transform.
         yaml_encodings: A single encoding spec dict (one entry from the
                         ``data`` list in ``hallmark.yml``), or ``None``.
 
     Returns:
         The (possibly transformed) format string.
     """
-    fmt = f
-
     if yaml_encodings is None:
-        return fmt
+        return value
 
-    enc = yaml_encodings.get("encoding", None)
+    enc = yaml_encodings.get("encoding")
     if not enc:
-        return fmt
+        return value
 
     regex = enc.get("aspin", "")
     if not regex:
-        return fmt
+        return value
 
-    if re.search(regex, fmt):
-        for match in re.finditer(regex, fmt):
-            k     = match.group(0)
-            k_num = "-" + str(match.group(1))
-            fmt   = re.sub(k, k_num, fmt)
+    result = value
+    for match in re.finditer(regex, value):
+        result = re.sub(match.group(0), "-" + str(match.group(1)), result)
 
-    return fmt
+    return result
