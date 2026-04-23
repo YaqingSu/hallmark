@@ -46,7 +46,7 @@ def regex_sub(value, yaml_encodings):
     if yaml_encodings is None:
         return value
 
-    enc = yaml_encodings.get("encoding")
+    enc = yaml_encodings.get("data")
     if not enc:
         return value
 
