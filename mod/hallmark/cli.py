@@ -21,7 +21,7 @@ from click import ClickException
 from git.exc import GitError
 
 from .downloader import DownloadError, download_remote_data
-from .error import CloneError, DestinationExistsError
+from .error import CloneError, DestinationExistsError, CheckoutError
 
 from . import Repo  # from "__init__.py"
 
@@ -226,7 +226,7 @@ def checkout(repo, target_branch):
     try:
         if repo.checkout(target_branch):
             click.echo(f'Switched to branch "{target_branch}".')
-    except (GitError, RuntimeError, ValueError, FileNotFoundError) as e:
+    except (GitError, RuntimeError, ValueError, FileNotFoundError, CheckoutError) as e:
         raise ClickException(str(e))
 
 

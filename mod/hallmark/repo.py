@@ -23,7 +23,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Union
 
 from .dothm import Dothm
-from .error import DestinationExistsError
+from .error import CheckoutError, DestinationExistsError
 from .objects import Objects
 from .paraframe import ParaFrame
 from .repo_config import branch_encodings, branch_fmt, path_from_row, row_to_path, \
@@ -258,7 +258,7 @@ class Repo:
             raise ValueError("branch name must be a non-empty string")
 
         if self.worktree is None:
-            raise RuntimeError("cannot checkout without a worktree")
+            raise CheckoutError("cannot checkout without a worktree")
         ensure_clean_tracked_files(self)
 
         existing = {head.name for head in self.dothm.heads}
@@ -269,7 +269,7 @@ class Repo:
         for _, row in target_state.data.iterrows():
             rel_path = row_to_path(row, target_state.config["data"][0]["fmt"])
             if rel_path not in current_tracked and (self.worktree / rel_path).exists():
-                raise RuntimeError(
+                raise CheckoutError(
                     f'target tracked path "{rel_path}" already exists '
                     "as an untracked file")
 
