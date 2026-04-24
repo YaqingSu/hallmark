@@ -19,6 +19,7 @@ from contextlib     import contextmanager
 from click.testing  import CliRunner
 from git import Repo as GitRepo
 
+from hallmark import ParaFrame
 from hallmark.cli import hallmark
 from hallmark.downloader import DownloadError
 
@@ -121,6 +122,26 @@ def test_cli_add_dot_and_explicit_paths():
             result = runner.invoke(hallmark, ["add", "top1.h5", "top2.h5"])
             assert result.exit_code != 0
             assert "explicit path add is not supported" in result.output
+
+
+def test_cli_add_regex_flag(monkeypatch):
+    runner = CliRunner()
+    with runner.isolated_filesystem():
+        runner.invoke(hallmark, ["init", "repo"])
+
+        with chdir("repo"):
+            called = {}
+
+            def fake_add(self, fmt, encoding=False):
+                called["fmt"] = fmt
+                called["encoding"] = encoding
+                return ParaFrame([{"path": "am0.5_i30.h5"}])
+
+            monkeypatch.setattr("hallmark.cli.Repo.add", fake_add)
+            result = runner.invoke(hallmark, ["add", "--regex", "."])
+
+            assert result.exit_code == 0
+            assert called == {"fmt": ".", "encoding": True}
 
 
 def test_cli_status():

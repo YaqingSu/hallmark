@@ -123,12 +123,19 @@ def status(repo):
 
 
 @hallmark.command(short_help="Add files to hallmark index.")
+@click.option(
+    "--regex",
+    "encoding",
+    is_flag=True,
+    default=False,
+    show_default=True,
+    help="Enable regex-based encoding rules from config.yml.")
 @click.argument("inputs", nargs=-1, required=True)
 @click.pass_obj
-def add(repo, inputs):
+def add(repo, encoding, inputs):
     """Add files to the hallmark index.
 
-    `hallmark add FORMAT` uses the branch format string workflow.
+    `hallmark add [--regex] FORMAT` uses the branch format string workflow.
     `hallmark add "."` rebuilds the manifest from current files that match
     the branch `fmt` in `config.yml`.
     Explicit path inputs such as shell-expanded `*` are not supported yet
@@ -136,7 +143,7 @@ def add(repo, inputs):
     """
     try:
         if len(inputs) == 1:
-            pf = repo.add(inputs[0])
+            pf = repo.add(inputs[0], encoding)
         else:
             pf = repo.add_paths(list(inputs))
     except (RuntimeError, ValueError, FileNotFoundError) as e:
