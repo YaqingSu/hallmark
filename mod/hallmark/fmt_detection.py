@@ -64,7 +64,7 @@ def _stems_to_fmts(stems: list[str]) -> list[str]:
                 remaining_stems.remove(anchor)
                 continue
 
-            # find the cluster with the most members that share positions with the anchor
+            # find the cluster with most members that share positions with the anchor
             _, best_members = max(stems_by_shared_positions.items(), \
                                   key=lambda kv: len(kv[1]))
             cluster = [anchor] + best_members

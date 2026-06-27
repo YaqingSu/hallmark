@@ -3,7 +3,6 @@ from pathlib import Path
 import shutil
 from hallmark import ParaFrame
 from .fmt_detection import detect_fmt, DRIVE_EXTENSIONS
-import pandas as pd
 import parse
 import re
 
