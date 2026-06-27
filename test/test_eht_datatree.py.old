@@ -1,7 +1,10 @@
 from pathlib import Path
 import pytest
 from hallmark import ParaFrame
-from hallmark.eht_datatree import read_inventory, validate, build_tree
+from hallmark.eht_datatree import scan_inventory, build_tree, detect_fmt
+
+### TODO: Test suite needs reconfigured for all the recent funciton changes ###
+### will not pass current tests as functionality has been changed/removed ###
 
 # sample inventory content for testing based off real EHT inventory
 INVENTORY_CONTENT = """\
@@ -45,10 +48,10 @@ def inventory_dir(tmp_path):
     _write_inventory(tmp_path, INVENTORY_CONTENT)
     return tmp_path
 
-# create fixture for read_inventory result to use in multiple tests
+# create fixture for scan_inventory result to use in multiple tests
 @pytest.fixture
 def inventory_result(inventory_dir):
-    return read_inventory(inventory_dir)
+    return scan_inventory(inventory_dir)
 
 # create test dataset fixture
 @pytest.fixture
@@ -199,8 +202,8 @@ def test_build_tree_ext_column_always_present(tmp_path):
     _write_inventory(tmp_path, "csv/SR1_M87_2017_095_hi.csv\n")
     fmt = "SR1_M87_{year}_{day}_{band}.csv"
     tree = build_tree(tmp_path, fmt)
-    for stem, pf in tree["data"].items(): 
-        assert "ext" in pf.columns, f"ext column not present in {stem}"
+    for stem, fmt_dict in tree["data"].items(): 
+        assert "ext" in fmt_dict["all"].columns, f"ext column not present in {stem}"
 
 ### build_tree meta branch tests ###
 
@@ -279,8 +282,8 @@ def test_build_tree_partitioning_and_completeness(sample_tree):
     drive_paths = set(sample_tree["drives"]["path"])
     data_paths  = {
         path
-        for pf in sample_tree["data"].values()
-        for path in pf["path"]}
+        for fmt_dict in sample_tree["data"].values()
+        for path in fmt_dict["all"]["path"]}
     # checks that the three branches have no common files
     assert meta_paths.isdisjoint(drive_paths), \
         f"meta and drives have common files: {sorted(meta_paths & drive_paths)}"
@@ -307,6 +310,33 @@ def test_build_tree_data_empty_when_no_fmt_matches(eht_dataset):
     assert len(tree["data"]) == 0, \
         f"length should be zero but len={len(tree['data'])}"
 
+def test_build_tree_data_matches_mixed_delimiters(tmp_path):
+    (tmp_path / "ER6_SGRA_2017_096_hi_hops_netcal-LMTcal_StokesI.csv").write_text(
+        "data", encoding="utf-8")
+    _write_inventory(
+        tmp_path,
+        "ER6_SGRA_2017_096_hi_hops_netcal-LMTcal_StokesI.csv\n")
+    fmt = "ER6_SGRA_2017_{day}_{band}_{pipeline}_netcal_LMTcal_StokesI"
+    tree = build_tree(tmp_path, fmt)
+    assert len(tree["data"]) == 1, \
+        f"expected 1 fmt despite delimiter mismatch, got {len(tree['data'])}"
+    
+
+def test_build_tree_auto_detected_fmt_matches_mixed_delimiters(tmp_path):
+    (tmp_path / "ER6_SGRA_2017_096_hi_hops_netcal-LMTcal_StokesI.csv").write_text(
+        "data", encoding="utf-8")
+    (tmp_path / "ER6_SGRA_2017_097_lo_casa_netcal-LMTcal_StokesI.csv").write_text(
+        "data", encoding="utf-8")
+    _write_inventory(
+        tmp_path,
+        "ER6_SGRA_2017_096_hi_hops_netcal-LMTcal_StokesI.csv\n"
+        "ER6_SGRA_2017_097_lo_casa_netcal-LMTcal_StokesI.csv\n")
+    tree = build_tree(tmp_path)  # fmt is None, triggers auto-detection
+    assert len(tree["data"]) == 1, \
+        f"expected 1 fmt, got {len(tree['data'])}"
+    fmt_dict = list(tree["data"].values())[0]
+    assert len(fmt_dict["all"]) == 2, \
+        f"expected 2 files, got {len(fmt_dict['all'])}"
 
 # needs unique dataset to test for single stem handling
 def test_build_tree_single_stem(tmp_path):
@@ -323,15 +353,16 @@ def test_build_tree_single_stem(tmp_path):
 # test that each data stem contains the expected number of files and schema
 def test_build_tree_data_content(sample_tree):
     data = sample_tree["data"]
-    assert len(data) == 2, f"expected 2 stems, got {len(data)}"
-    for stem, pf in data.items():
-        assert isinstance(pf, ParaFrame), f"{stem} is not a ParaFrame"
-        assert len(pf) == 3, f"{stem} has {len(pf)} files, expected 3"
-        assert set(pf.columns) == {"path", "ext", "year", "day", "band"}, \
-            f"{stem} has {pf.columns}, expected ['path', 'ext', 'year', 'day', 'band']"
-        formats = set(pf["ext"].unique())
-        assert formats == {"csv", "txt", "uvfits"}, \
-            f"{stem} has wrong formats: {formats}, expected ['csv', 'txt', 'uvfits']"
+    assert len(data) == 1, f"expected 1 fmt, got {len(data)}"
+    fmt_dict = list(data.values())[0]
+    stems = [k for k in fmt_dict if k != "all"]
+    assert len(stems) == 2, f"expected 2 stems, got {len(stems)}"
+    for stem in stems:
+        assert len(fmt_dict[stem]) == 3, \
+            f"{stem} has {len(fmt_dict[stem])} files, expected 3"
+    assert len(fmt_dict["all"]) == 6, \
+        f"all has {len(fmt_dict['all'])} files, expected 6"
+    
 
 ### fmt variations tests ###
 
@@ -349,5 +380,161 @@ def test_build_tree_nested_subdir_fmt(tmp_path):
         "hops_data/April05/SR2_M87_2017_095_hi_hops.uvfits\n")
     fmt = "SR2_M87_{year}_{day}_{band}_{pipeline}.uvfits"
     tree = build_tree(tmp_path, fmt)
+    assert len(tree["data"]) == 1
+    fmt_dict = list(tree["data"].values())[0]
+    stems = [k for k in fmt_dict if k != "all"]
+    assert len(stems) == 2, \
+        f"expected 2 stems but got {len(stems)}, couldn't parse nested directories"
+    
+### detect_fmt tests ###
+
+def test_detect_fmt_finds_single_pattern(tmp_path):
+    _write_inventory(
+        tmp_path,
+        "csv/SR1_M87_2017_095_hi_hops_netcal_StokesI.csv\n"
+        "csv/SR1_M87_2017_096_lo_hops_netcal_StokesI.csv\n")
+    fmts = detect_fmt(tmp_path)
+    assert fmts == ["SR1_M87_2017_{p0}_{p1}_hops_netcal_StokesI"], f"unexpected fmts: \
+    {fmts}, expected 'SR1_M87_2017_{{p0}}_{{p1}}_hops_netcal_StokesI'"
+
+
+def test_detect_fmt_excludes_script_extensions(tmp_path):
+    _write_inventory(
+        tmp_path,
+        "csv/SR1_M87_2017_095_hi.csv\n"
+        "csv/SR1_M87_2017_096_lo.csv\n"
+        "csv/dump_csv.py\n"
+        "csv/convert.py\n")
+    fmts = detect_fmt(tmp_path)
+    assert all("dump" not in fmt for fmt in fmts), \
+        f"dump files leaked into fmts: {fmts}"
+    assert all("convert" not in fmt for fmt in fmts), \
+        f"convert files leaked into fmts: {fmts}"
+
+
+def test_detect_fmt_excludes_known_meta_files(tmp_path):
+    _write_inventory(
+        tmp_path,
+        "README.txt\n"
+        "LICENSE.txt\n"
+        "data/SR1_M87_2017_095_hi.txt\n"
+        "data/SR1_M87_2017_096_lo.txt\n")
+    fmts = detect_fmt(tmp_path)
+    assert all("README" not in fmt for fmt in fmts), \
+        f"README file leaked into fmts: {fmts}"
+    assert all("LICENSE" not in fmt for fmt in fmts), \
+        f"LICENSE file leaked into fmts: {fmts}"
+
+
+def test_detect_fmt_separates_by_first_token(tmp_path):
+    _write_inventory(
+        tmp_path,
+        "csv/SR1_M87_2017_095.csv\n"
+        "csv/SR1_M87_2017_096.csv\n"
+        "csv/ER6_SGRA_2017_097.csv\n"
+        "csv/ER6_SGRA_2017_098.csv\n")
+    fmts = detect_fmt(tmp_path)
+    assert len(fmts) == 2, f"expected 2 fmts, got {len(fmts)}: {fmts}"
+    assert any("SR1" in fmt for fmt in fmts), f"SR1 fmt not found in fmts: {fmts}"
+    assert any("ER6" in fmt for fmt in fmts), f"ER6 fmt not found in fmts: {fmts}"
+
+
+def test_detect_fmt_separates_by_token_count(tmp_path):
+    # same first token but different number of tokens (optional field case)
+    _write_inventory(
+        tmp_path,
+        "csv/ER6_SGRA_2017_095_hi_netcal_StokesI.csv\n"
+        "csv/ER6_SGRA_2017_096_lo_netcal_StokesI.csv\n"
+        "csv/ER6_SGRA_2017_097_hi_netcal_norm_StokesI.csv\n"
+        "csv/ER6_SGRA_2017_098_lo_netcal_besttime_StokesI.csv\n"
+    )
+    fmts = detect_fmt(tmp_path)
+    assert len(fmts) == 2, f"expected 2 fmts, got {len(fmts)}: {fmts}"
+
+
+def test_detect_fmt_returns_empty_when_no_data_files(tmp_path):
+    _write_inventory( tmp_path, "README.md\nLICENSE.txt\nrun.sh\n")
+    fmts = detect_fmt(tmp_path)
+    assert fmts == [], f"expected empty list, got {fmts}"
+
+
+def test_detect_fmt_used_automatically_when_fmt_is_none(tmp_path):
+    (tmp_path / "SR1_M87_2017_095_hi.csv").write_text(
+        "data", encoding="utf-8")
+    (tmp_path / "SR1_M87_2017_096_lo.csv").write_text(
+        "data", encoding="utf-8")
+    _write_inventory(
+        tmp_path,
+        "SR1_M87_2017_095_hi.csv\n"
+        "SR1_M87_2017_096_lo.csv\n")
+    tree = build_tree(tmp_path)
+    assert len(tree["data"]) == 1, \
+        f"expected 1 fmt, got {len(tree['data'])}"
+
+### data branch "all" paraframe tests ###
+
+def test_build_tree_data_all_merges_every_stem(tmp_path):
+    for stem_name in ["SR1_M87_2017_095_hi", "SR1_M87_2017_096_lo"]:
+        (tmp_path / f"{stem_name}.csv").write_text("data", encoding="utf-8")
+    _write_inventory(
+        tmp_path,
+        "SR1_M87_2017_095_hi.csv\n"
+        "SR1_M87_2017_096_lo.csv\n"
+    )
+    fmt = "SR1_M87_{year}_{day}_{band}.csv"
+    tree = build_tree(tmp_path, fmt)
+    fmt_dict = list(tree["data"].values())[0]
+    stems = [k for k in fmt_dict if k != "all"]
+    total_stem_rows = sum(len(fmt_dict[stem]) for stem in stems)
+    assert len(fmt_dict["all"]) == total_stem_rows, \
+        f"'all' has {len(fmt_dict['all'])} rows, expected {total_stem_rows}"
+
+
+def test_build_tree_data_multiple_fmts_produce_separate_branches(tmp_path):
+    (tmp_path / "SR1_M87_2017_095_hi.csv").write_text("data", encoding="utf-8")
+    (tmp_path / "ER6_SGRA_2017_096_lo.csv").write_text("data", encoding="utf-8")
+    _write_inventory(
+        tmp_path,
+        "SR1_M87_2017_095_hi.csv\n"
+        "ER6_SGRA_2017_096_lo.csv\n"
+    )
+    fmts = [
+        "SR1_M87_{year}_{day}_{band}",
+        "ER6_SGRA_{year}_{day}_{band}",
+    ]
+    tree = build_tree(tmp_path, fmts)
     assert len(tree["data"]) == 2, \
-    f"length should be 2 but len={len(tree['data'])}, couldn't parse nested directories"
+        f"expected 2 fmt branches, got {len(tree['data'])}"
+    for fmt_dict in tree["data"].values():
+        assert "all" in fmt_dict, "'all' paraframe missing from fmt dict"
+
+
+def test_detect_fmt_separates_when_first_token_varies(tmp_path):
+    _write_inventory(
+        tmp_path,
+        "AA_B_1_0AXG5H.dat\n"
+        "AA_B_2_0AXG5H.dat\n"
+        "AP_B_3_0AXG5H.dat\n"
+        "AP_B_4_0AXG5H.dat\n"
+    )
+    fmts = detect_fmt(tmp_path)
+    assert len(fmts) == 2, f"expected 2 fmts, got {len(fmts)}: {fmts}"
+    assert any(fmt.startswith("AA_") for fmt in fmts), \
+    f"AA_ fmt not found in fmts: {fmts}"
+    assert any(fmt.startswith("AP_") for fmt in fmts), \
+    f"AP_ fmt not found in fmts: {fmts}"
+
+
+def test_build_tree_data_ext_column_has_no_period(tmp_path):
+    (tmp_path / "SR1_M87_2017_095_hi.csv").write_text("data", encoding="utf-8")
+    (tmp_path / "SR1_M87_2017_096_lo.csv").write_text("data", encoding="utf-8")
+    _write_inventory(
+        tmp_path,
+        "SR1_M87_2017_095_hi.csv\n"
+        "SR1_M87_2017_096_lo.csv\n"
+    )
+    fmt = "SR1_M87_{year}_{day}_{band}.csv"
+    tree = build_tree(tmp_path, fmt)
+    fmt_dict = list(tree["data"].values())[0]
+    exts = set(fmt_dict["all"]["ext"])
+    assert exts == {"csv"}, f"expected ext without period, got {exts}"

@@ -1,101 +1,144 @@
 from __future__ import annotations
 from pathlib import Path
+import shutil
 from hallmark import ParaFrame
+from .fmt_detection import detect_fmt, DRIVE_EXTENSIONS
+import pandas as pd
 import parse
+import re
 
-def _strip_suffixes(path: str) -> str:
-    """Strip all suffixes from a path string to help with parsing inventory files."""
-    p = Path(path)
-    while p.suffix:
-        p = p.with_suffix("")
-    return str(p)
+def _extract_drive(drive_path: Path) -> Path:
+    # remove extension from drive name to create the extraction directory
+    extract_dir = drive_path.parent / drive_path.stem
+    # check that the drive has not already been extracted
+    if not extract_dir.exists():
+        shutil.unpack_archive(str(drive_path), str(extract_dir))
+    return extract_dir
 
-def _alternative_spellings(path: str) -> list[str]:
-    """Return alternative spellings for known filename variants."""
-    alternatives = [path]
-    if "LICENSE" in path:
-        alternatives.append(path.replace("LICENSE", "LICENCE"))
-    if "LICENCE" in path:
-        alternatives.append(path.replace("LICENCE", "LICENSE"))
-    return alternatives
-
-def read_inventory(root: Path) -> list[str]:
+# private function used by build_tree to create nested data branch
+def _build_data_branches(root: Path, fmt: str | list[str] | None, tracked: set[str],) \
+                            -> dict:
     """
-    Read INVENTORY.txt and return expected relative file paths.
+    Build the fmt/stem data structure for files matching the given fmt(s).
 
     Args:
-        root: Path to the dataset root directory containing INVENTORY.txt.
+        root:    Path to search for matching files.
+        fmt:     Format string(s) for parsing data files. If None,
+                 fmts are auto-detected from files list
+        tracked: Set of relative file paths already accounted for.
 
     Returns:
-        List of relative file path strings expected to exist under root.
-
-    Raises:
-        FileNotFoundError: If INVENTORY.txt does not exist under root.
+        Dict of {fmt_str: {stem_key: ParaFrame, ..., "all": ParaFrame}}.
     """
-    # finds path to the inventory file, raises error if not found
-    inventory_path = Path(root) / "INVENTORY.txt"
-    if not inventory_path.exists():
-        raise FileNotFoundError(f"INVENTORY.txt not found in {root}")
-
-    files_list = []
-    # skip directory lines ending in "/" and strip executable marker "*"
-    for line in inventory_path.read_text(encoding="utf-8").splitlines():
-        # remove whitespace
-        line = line.strip()
-        # skip empty lines and directories
-        if not line or line.endswith("/"):
-            continue
-        # remove executable marker if present
-        line = line.rstrip("*")
-        # check there is a file extension
-        if not Path(line).suffix:
-            continue
-        # add cleaned line to files list
-        files_list.append(line)
-    return files_list
-
-def validate(root: Path, tracked: set[str]) -> bool:
-    """
-    Cross-check INVENTORY.txt against a set of tracked files in tree.
-
-    Args:
-        root:    Path to the dataset root containing INVENTORY.txt.
-        tracked: Set of relative file path strings already in the tree.
-
-    Returns:
-        True if all inventory files are accounted for, False otherwise.
-    """
-    files_list = read_inventory(root)
-    # add files to missing if not in tracked but in inventory
-    # checks the end rather than exact match to handle nesting and strip suffixes
-    missing = [
-    file for file in files_list
-    if not any(
-        t.endswith(alt) or _strip_suffixes(t).endswith(_strip_suffixes(alt))
-        for t in tracked
-        # catch issues like licence/license
-        for alt in _alternative_spellings(file))]
-    # if the missing list is not empty, print missing files message
-    if missing:
-        # print how many files are missing and list them
-        print(f"  missing  : {len(missing)} file(s)")
-        for file in missing:
-            print(f"    ✗  {file}")
-        return False
+    ### FMT STEMS OUTER DICT ###
+    # if no fmt was entered, parse the files to find them
+    if fmt is None:
+        fmts = detect_fmt(root)
     else:
-        print("  ✓ all inventory files are present in the tree")
-        return True
-    
-# common drive extensions to look for when building the tree
-DRIVE_EXTENSIONS = [".tgz", ".tar", ".gz", ".zip", ".bz2", ".xz", ".zst", ".7z", ".rar"]
+        # check if there is only one fmt
+        fmts = [fmt] if isinstance(fmt, str) else fmt
+    # make a parser for each fmt with normalized deliminators
+    parsers = []
+    # normalize the deliminators for parsing
+    for f in fmts:
+        # normalize the deliminators for parsing
+        stem = re.sub(r"[\-.]", "_", f)
+        tokens = stem.split("_")
+        # keep the full stem in the variants list
+        variants = [stem]
+        for i, token in enumerate(tokens):
+            if re.fullmatch(r"\{p\d+\}", token):
+                # remove one parameter token at a time to create a variant
+                dropped = tokens[:i] + tokens[i + 1:]
+                variants.append("_".join(dropped))
 
-def build_tree(root: Path, fmt: str | list[str]) -> dict:
+        for v in variants:
+            # create a parser for each variant
+            parsers.append((f, len(v.split("_")), parse.compile(v)))
+
+    # dict of the different fmt stems initialization
+    fmt_stems = {}
+    # search all subdirectories from root
+    for file in root.rglob("*"):
+        # if the file isn't a dir or a drive
+        relative_path = str(file.relative_to(root))
+        if relative_path in tracked or not file.is_file():
+            continue
+        # reset parse and fmt for each file
+        parsed = None
+        matched_fmt = None
+
+        stem_only = re.sub(r"[\-.]", "_", file.stem)
+        stem_with_ext = stem_only + re.sub(r"[\-.]", "_", file.suffix)
+        # counts to see if ext was included in fmt
+        stem_only_token_count = len(stem_only.split("_"))
+        stem_with_ext_token_count = len(stem_with_ext.split("_")) 
+
+        # parse the file name to extract fields, skip if it doesn't match the format
+        for fmt_str, variant_token_count, parser in parsers:
+            # if these are equal, there was no ext in the fmt
+            if variant_token_count == stem_only_token_count:
+                candidate = stem_only
+            # if these are equal, there was an ext in the fmt
+            elif variant_token_count == stem_with_ext_token_count:
+                candidate = stem_with_ext
+            # if neither are equal, this fmt is not compatible with this file
+            else:
+                continue
+            parsed = parser.parse(candidate)
+            # break out once correct parser is found
+            if parsed:
+                matched_fmt = fmt_str
+                break
+
+        if parsed:
+            # get path to file from data root
+            relative_path = str(file.relative_to(root))
+            # create unique stem name based on fmt parameters excluding extension
+            stem_key = "_".join(str(value) for key, value in parsed.named.items() 
+                                if key != "ext")
+            # create a row for this file to add to relevant Paraframe
+            row = {
+                "path": relative_path,
+                # normalize ext to not have period
+                "ext": Path(relative_path).suffix.lstrip("."),
+                # one column for each different parsed field
+                **{key: value for key, value in parsed.named.items() if key != "ext"},}
+            # add row to dict, and create the dict if it doesn't exist yet
+            fmt_stems.setdefault(matched_fmt, {}).setdefault(stem_key, []).append(row)
+            tracked.add(relative_path)
+
+    ### FMT STEMS INNER DICTS ###
+    # data structure initialization
+    data_branches = {}
+    # for every fmt and its stem dict
+    for fmt_str, stems in fmt_stems.items():
+        fmt_dict = {}
+        all_rows = []
+        # loop thru every stem for this fmt
+        for stem_key, rows in stems.items():
+            # create a Paraframe for each different stem
+            stem_pf = ParaFrame(rows, base_path=root)
+            # stem Paraframes are nested inside the fmt dict
+            fmt_dict[stem_key] = stem_pf
+            all_rows.extend(rows)
+        # create a Paraframe with all the stems for this dict merged
+        fmt_dict["all"] = ParaFrame(all_rows, base_path=root)
+        # each fmt broken into different data branches
+        data_branches[fmt_str] = fmt_dict
+
+    return data_branches
+
+
+def build_tree(root: Path, fmt: str | list[str] | None = None, data_type: str = "L2")\
+                 -> dict:
     """
     Build an in-memory pytree for an EHT dataset directory.
 
     Args:
         root: Path to the EHT dataset root directory.
         fmt: Format string for parsing data files.
+        data_type: Type of data to build ("L1" or "L2")
 
     Returns:
         A dictionary with keys:
@@ -105,15 +148,23 @@ def build_tree(root: Path, fmt: str | list[str]) -> dict:
     """
     # create clean root path
     root = Path(root).expanduser().resolve()
-    # track files that are included in the tree, to cross-check against inventory
+    # track files that are included in the tree to avoid double counting
     tracked = set()
+
+    # L1 data makes recursive calls for each directory, so use glob instead of rglob
+    glob_fn = root.glob if data_type == "L1" else root.rglob
 
     ### DRIVES ###
     # collect all drive paths matching any supported extension
     drive_paths = []
+    extracted_dir_names = set()
     for ext in DRIVE_EXTENSIONS:
         # add any file that has this ext to the drive paths list and tracked set
-        for path in root.rglob(f"*{ext}"):
+        for path in glob_fn(f"*{ext}"):
+            extract_dir = _extract_drive(path)
+            # only L1 data needs to track the extracted directory names for recursion
+            if data_type == "L1":
+                extracted_dir_names.add(extract_dir.name)
             drive_paths.append(str(path.relative_to(root)))
             tracked.add(str(path.relative_to(root)))
     # build a single ParaFrame from all drive paths with extensions column
@@ -123,52 +174,15 @@ def build_tree(root: Path, fmt: str | list[str]) -> dict:
     base_path=root,)
 
     ### DATA ###
-    # check if there is only one fmt
-    fmts = [fmt] if isinstance(fmt, str) else fmt
-    # make a parser for each fmt
-    parsers = [parse.compile(f) for f in fmts]
-    stems = {}
-    # search all subdirectories from root
-    for file in root.rglob("*"):
-        # if the file isn't a folder
-        if not file.is_file():
-            continue
-        # reset parse for each file
-        parsed = None
-        # parse the path to extract fields, skip if it doesn't match the format
-        for parser in parsers:
-            parsed = (parser.parse(file.name) or 
-                      parser.parse(file.stem) or 
-                      parser.parse(file.stem.split(".")[0]))
-            # break out once matching parser found
-            if parsed:
-                break
-        if parsed:
-            # get path to file from data root
-            relative_path = str(file.relative_to(root))
-            # create unique stem name based on fmt parameters excluding extension
-            stem_key = "_".join(str(value) for key, value in parsed.named.items() 
-                                if key != "ext")
-            # create stem if it doesn't already exist and add a row for this file
-            stems.setdefault(stem_key, []).append(
-                {"path": relative_path,
-                 # normalize ext to not have period
-                 "ext": Path(relative_path).suffix.lstrip("."),               
-                 **{key: value for key, value in parsed.named.items() if key != "ext"},}
-            )
-            tracked.add(relative_path)
-
-    data_branches = {}
-    # create a ParaFrame for each stem and add to the data branches dict
-    for stem_key, rows in stems.items():
-        data_branches[stem_key] = ParaFrame(rows, base_path=root)
+    data_branches = _build_data_branches(root, fmt, tracked) \
+                    if data_type == "L2" else {}
 
     ### META ###
     # create a list of all files under root that aren't tracked
     meta_files = {
         str(file.relative_to(root))
-        for file in root.rglob("*")
-        # add file if its not a dir, not the .hm, and not in tracked
+        for file in glob_fn("*")
+        # add inventory item if its not a dir, not the .hm, and not in tracked
         if file.is_file() 
            and ".hm" not in file.parts
            and str(file.relative_to(root)) not in tracked
@@ -180,13 +194,23 @@ def build_tree(root: Path, fmt: str | list[str]) -> dict:
     base_path=root,)
     for _, row in meta_pf.iterrows():
         tracked.add(row["path"])
-
-    # check all files are in the tree
-    validate(root, tracked)
         
-    # return dict with three keys, only data has subbranches
-    return {
-        "meta"   : meta_pf,
-        "drives" : drives_pf,
-        "data"   : data_branches,
-    }
+    # create dict with three keys, only data has subbranches
+    tree = {}
+    if not meta_pf.empty:
+        tree["meta"] = meta_pf
+    if not drives_pf.empty:
+        tree["drives"] = drives_pf
+    if data_branches:
+        tree["data"] = data_branches
+ 
+    # recursive L1 tree construction
+    if data_type == "L1":
+        # call build_tree for each subdirectory
+        for subdir in sorted(p for p in root.iterdir() if p.is_dir()):
+            # calls with drives will end recursion
+            next_level = "L2" if subdir.name in extracted_dir_names else "L1"
+            # append each subdirectory to the tree
+            tree[subdir.name] = build_tree(subdir, fmt, data_type=next_level)
+ 
+    return tree
