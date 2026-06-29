@@ -108,18 +108,13 @@ class ParaFrame(pd.DataFrame):
         conditions are returned.
 
         Args:
-            **kwargs: Keyword arguments specifying column names and values to
-                filter by.
-
-                - If a value is a tuple or list, rows matching any of those
-                values are selected.
-                - If a value is a scalar, rows whose column equals that value
-                are selected.
+            ``**kwargs``: Keyword arguments specifying column names and values to
+            filter by. Values may be scalars or sequences (lists or tuples).
+            Sequence values match any element in the sequence.
 
         Returns:
-            pandas.DataFrame:
-                A filtered DataFrame containing only rows that satisfy the
-                requested conditions.
+            pandas.DataFrame: A filtered DataFrame containing only the rows
+            that satisfy the requested conditions.
         """
         mask = np.zeros(len(self), dtype=bool)
         for k, v in kwargs.items():
@@ -151,34 +146,28 @@ class ParaFrame(pd.DataFrame):
         Args:
             fmt (str):
                 Format string describing the expected filename pattern.
-                Fields enclosed in ``{}`` are extracted as parameters.
 
-            *args:
+            ``*args``:
                 Positional arguments used to fill the format string.
 
             encodings (dict):
                 Encoding specifications from ``config.yml``.
-                Defaults to ``{}``.
 
             base_path (Path):
                 Root directory to search.
-                Defaults to ``Path.cwd()``.
 
             debug (bool):
                 If ``True``, prints debugging information.
-                Defaults to ``False``.
 
             return_pattern (bool):
                 If ``True``, returns both the glob pattern and the matched
                 files.
-                Defaults to ``False``.
 
             encoding (bool):
                 If ``True``, applies regex encodings defined in the YAML
                 configuration.
-                Defaults to ``False``.
 
-            **kwargs:
+            ``**kwargs``:
                 Keyword arguments used to fill the format string.
                 Missing values are replaced with the wildcard ``*``.
 
@@ -300,17 +289,8 @@ class ParaFrame(pd.DataFrame):
                 Defaults to ``False``.
 
         Returns:
-            ParaFrame:
-                A ``ParaFrame`` whose rows correspond to matched files.
-                Parsed parameters are stored as columns together with a
-                ``path`` column.
-
-        Example:
-            >>> from hallmark import ParaFrame
-            >>> pf = ParaFrame.parse(
-            ...     "/custom_parameter{custom_parameter}_p{parameter}.h5",
-            ...     encoding=True,
-            ... )
+            ParaFrame: A ``ParaFrame`` whose rows correspond to matched files.
+            Parsed parameters are stored as columns together with a ``path`` column.
         """
         base_path = Path(base_path) if base_path is not None else Path.cwd()
 
