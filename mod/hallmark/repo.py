@@ -56,7 +56,8 @@ def chdir(path):
 
 @dataclass(init=False)
 class Repo:
-    """Hallmark repository.
+    """
+    Hallmark repository.
 
     This is the Python API boundary.
     It loads the in-memory ``State`` from repository ``Dothm``, and
@@ -148,8 +149,7 @@ class Repo:
             url(string): remote repository URL.
             path(path|string): destination path for clone.
             fetch_data (boolean): if true, downloads associated data files. 
-            max_workers (integer): Number of parallel workers for 
-                downloading data.
+            max_workers (integer): Number of parallel workers for downloading data.
             show_progress (boolean): wether to display download progress.
         Returns:
             Repo: Cloned Repository instance
@@ -199,8 +199,9 @@ class Repo:
     def checksum(path: Path, chunk_size: int = 1024 * 1024) -> str:
         '''
         Computes the SHA1 checksum of a file. 
+
         Args:
-            path (path):path to the file to hash.
+            path (path): path to the file to hash.
             chunk_size (integer): size of chunks used for streaming reads.
         Returns:
             String: Hexadecimal SHA1 digest of the file contents.
@@ -228,16 +229,18 @@ class Repo:
         remote_url: Optional[str] = None,
         encoding_updates: Optional[Dict[str, str]] = None,
     ) -> dict:
-        '''
+        """
         Update repository configuration values.
-        Args: 
-            fmt (string|None): Data dormat specification.
-            remote_name (string|None): Name of the remote repository.
-            remote_url (string|None): URL of the remote repository.
-            encoding_updates (dictioary[str,str] | None): updates to encoding rules.
+
+        Args:
+            fmt (str, optional): Data format specification.
+            remote_name (str, optional): Name of the remote repository.
+            remote_url (str, optional): URL of the remote repository.
+            encoding_updates (dict[str, str], optional): Updates to encoding rules.
+
         Returns:
-            dictionary: Updated configuration dictionary
-        '''
+            dict: Updated configuration dictionary.
+        """
         repo_set_config(
             self,
             fmt=fmt,
@@ -253,7 +256,8 @@ class Repo:
         Return repository status information. Includes staged changes, 
         orktree modifications, deletions, and untracked files.
 
-        Args: none?
+        Args: 
+            none?
 
         Returns:
             dict[str, object]: Status summary including:
@@ -384,8 +388,8 @@ class Repo:
         message is empty or invalid. 
 
         Args:
-        msg (string): commit message.
-        allow_empty (boolean): Allow comitting even if no changes exists.
+            msg (string): commit message.
+            allow_empty (boolean): Allow comitting even if no changes exists.
         Returns:
             boolean: True if a commit was created, false otherwise. 
         '''
@@ -405,7 +409,7 @@ class Repo:
         Return commit history log.
 
         Returns:
-        string: Git log output, or an empty string if no valid HEAD exists.
+            string: Git log output, or an empty string if no valid HEAD exists.
         '''
         if not self.dothm.head.is_valid():
             return ""
@@ -414,10 +418,11 @@ class Repo:
     def branches(self) -> dict[str, object]:
         '''
         List repository branches. 
+
         Returns:
             dictionary[string, object]: Dictionary containing:
-                - current (string): Active branch name
-                - names (list[string]): All branch names
+                - ``current`` (string): Active branch name
+                - ``names``: All branch names
         '''
         current = self.dothm.active_branch.name
         names = sorted(head.name for head in self.dothm.heads)
