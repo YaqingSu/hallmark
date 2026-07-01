@@ -3,7 +3,7 @@ API Reference
 
 Repository State
 ----------------
-# Example: This tells Sphinx to import hallmark.repo_state and extract the module 
+# This tells Sphinx to import hallmark.filename and extract the module 
 # and function docstrings.
 
 .. automodule:: hallmark.repo
