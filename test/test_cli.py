@@ -23,7 +23,6 @@ from hallmark import ParaFrame
 from hallmark.cli import hallmark
 from hallmark.downloader import DownloadError
 
-
 @contextmanager
 def chdir(path):
     old = os.getcwd()
@@ -65,6 +64,7 @@ def test_cli():
             assert result.exit_code == 0
             assert "Committed staged state changes." in result.output
 
+            result = runner.invoke(hallmark, ["checkout", "experiment"])
             result = runner.invoke(hallmark, ["checkout", "experiment"])
             assert result.exit_code == 0
             assert 'Switched to branch "experiment".' in result.output

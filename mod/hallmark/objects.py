@@ -60,8 +60,14 @@ class Objects:
             Path: Path to the stored object.
         """
         stored_checksum = self._split_checksum(sha1)
-        if not stored_checksum.exists():
-            stored_checksum.parent.mkdir(parents=True, exist_ok=True)
+        if stored_checksum.exists():
+            return stored_checksum
+        stored_checksum.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            # try to create a hard link to avoid copying the file if possible
+            os.link(src, stored_checksum)
+        except OSError:
+            # if hard link creation fails, fall back to copying the file
             shutil.copy2(src, stored_checksum)
         return stored_checksum
 
